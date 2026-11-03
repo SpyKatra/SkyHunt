@@ -19,12 +19,14 @@ de l'appareil et du lieu de la photo, avec des classements mondial et national.
 La page est publiée automatiquement par GitHub Actions à chaque modification de `web/`
 (Réglages du dépôt → Pages → Source : **GitHub Actions**).
 
-### Ce que fait le prototype (0.2)
+### Ce que fait le prototype (0.3)
 
 **Jeu**
 
 - **Cartes de collection** : chaque capture validée devient une carte (Commun → Légendaire) avec animation de révélation.
-- **Identification** : tu choisis le type d'avion dans un catalogue de 57 appareils (en attendant l'IA), immatriculation facultative.
+- **Immatriculation lue automatiquement** sur la photo (Tesseract, sur le téléphone), avec correction des confusions évidentes (E→F en tête, chiffres→lettres).
+- **Modèle exact grâce au registre de Transport Canada** pour les marques C-XXXX : 30 000+ avions, mis à jour chaque lundi par GitHub Actions (`tools/build_registre.py`, aucune donnée de propriétaire). Un bouton « Confirmer » suffit.
+- **Identification manuelle** sinon : catalogue de 69 types, immatriculation modifiable.
 - **Points** selon la grille du projet : (appareil + lieu) × qualité × répétition + bonus nouveau type ; même immatriculation = 0 pt.
 - **Album** : tout le catalogue par catégorie, avec les types encore à découvrir et le pourcentage de complétion.
 - **Profil** : niveau et titre, XP, statistiques, répartition par rareté, 12 succès à débloquer.
@@ -62,6 +64,9 @@ python3 -m http.server 8000
 # puis ouvrir http://localhost:8000 (la caméra ne marche qu'en https ou sur localhost)
 ```
 
-## Licences des composants
+## Licences et sources
 
 - Modèle EfficientDet-Lite0 et TFLite Web API (`web/vendor/tflite`) : TensorFlow, licence Apache 2.0.
+- Tesseract.js et données `eng` (`web/vendor/tesseract`) : licence Apache 2.0.
+- Leaflet (`web/vendor/leaflet`) : licence BSD-2 ; fonds de carte © contributeurs OpenStreetMap.
+- Registre d'immatriculation des aéronefs civils canadiens : Transport Canada.

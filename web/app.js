@@ -5,6 +5,7 @@ import { addCapture, clearCaptures, deleteCapture, listCaptures } from './store.
 import { initCards, openDetail, renderCards } from './ui-cards.js';
 import { $, forgetPhoto, toast } from './ui-common.js';
 import { identify, initIdentify } from './ui-identify.js';
+import { warmUpOcr } from './ocr.js';
 import { bindMapPopupLinks, initMap, renderMap } from './ui-map.js';
 import { initProfile, renderProfile } from './ui-profile.js';
 import { reveal } from './ui-reveal.js';
@@ -122,6 +123,7 @@ async function start() {
     setStatus('Chargement du modèle…');
     $('start-wrap').classList.add('hidden');
     state.detector = await createDetector();
+    warmUpOcr();
     startGps();
     state.running = true;
     loop();
@@ -266,6 +268,7 @@ async function capture() {
       sizeRatio: d.sizeRatio,
       sharpness: d.sharpness,
       brightness: d.brightness,
+      box: d.box || null,
       thresholds: { ...state.thresholds },
       valid,
       reasons,
@@ -282,8 +285,8 @@ async function capture() {
     }
 
     // Capture valide : on demande le type, puis révélation de la carte.
-    const { typeId, registration } = await identify(record, ownedTypes());
-    const res = await saveAndDiff({ ...record, typeId, registration });
+    const ident = await identify(record, ownedTypes());
+    const res = await saveAndDiff({ ...record, ...ident });
     await reveal(res.capture, res);
   } catch (e) {
     toast(`Erreur : ${e.message || e}`);
@@ -304,9 +307,9 @@ $('toggle-debug').addEventListener('click', () => {
 async function changeType(id) {
   const c = state.list.find((x) => x.id === id);
   if (!c) return;
-  const { typeId, registration } = await identify(c, ownedTypes());
+  const ident = await identify(c, ownedTypes());
   const before = c.points;
-  await addCapture({ ...rawOf(c), typeId, registration });
+  await addCapture({ ...rawOf(c), ...ident });
   await reload();
   const after = state.list.find((x) => x.id === id);
   toast(`Carte mise à jour : ${after.points} pts (avant ${before})`);
@@ -321,9 +324,9 @@ async function removeCapture(id) {
 }
 
 async function copyData() {
-  const head = 'date,valide,type,immatriculation,points,confiance,taille,nettete,luminosite,precision_gps_m,raisons';
+  const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,precision_gps_m,raisons';
   const rows = state.list.map((c) => [
-    c.takenAt, c.valid ? 'oui' : 'non', c.typeId || '', c.registration || '', c.points,
+    c.takenAt, c.valid ? 'oui' : 'non', c.typeId || '', c.registration || '', c.registrationSource || '', `"${c.registryModel || ''}"`, c.points,
     c.confidence.toFixed(2), c.sizeRatio.toFixed(2), Math.round(c.sharpness), Math.round(c.brightness),
     c.accuracy != null ? Math.round(c.accuracy) : '', `"${c.reasons.join(' | ')}"`,
   ].join(','));

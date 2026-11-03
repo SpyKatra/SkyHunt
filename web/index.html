@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
-  <link rel="stylesheet" href="style.css?v=0.2" />
+  <link rel="stylesheet" href="style.css?v=0.3" />
 </head>
 <body>
   <main id="app">
@@ -104,6 +104,7 @@
         <button class="close" data-close="identify" aria-label="Fermer">✕</button>
       </div>
       <img id="identify-photo" alt="" />
+      <div id="identify-auto" class="auto hidden"></div>
       <input id="identify-search" type="search" placeholder="Rechercher (ex. Dash 8, A320, Saab)" autocomplete="off" />
       <input id="identify-reg" type="text" placeholder="Immatriculation (facultatif, ex. C-GKUG)" autocapitalize="characters" autocomplete="off" />
       <div id="identify-list"></div>
@@ -131,9 +132,10 @@
   </div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/tesseract/tesseract.min.js"></script>
   <!-- La bibliothèque TFLite se termine par « exports.tfweb = … » : on lui fournit un objet vide. -->
   <script>var exports = {};</script>
   <script src="vendor/tflite/tflite_web_api_client.js"></script>
-  <script type="module" src="app.js?v=0.2"></script>
+  <script type="module" src="app.js?v=0.3"></script>
 </body>
 </html>

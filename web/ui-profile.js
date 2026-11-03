@@ -83,7 +83,7 @@ export function renderProfile() {
         <button id="p-clear" class="danger">Tout effacer</button>
       </div>
     </div>
-    <p class="foot-note">Prototype 0.2 · les photos restent sur ce téléphone.<br />Points provisoires : le type est choisi par toi en attendant l’identification automatique.</p>`;
+    <p class="foot-note">Prototype 0.3 · les photos restent sur ce téléphone.<br />Immatriculations canadiennes : registre de Transport Canada (mis à jour chaque semaine).</p>`;
 
   $('p-name').addEventListener('change', (e) => {
     saveProfile({ ...loadProfile(), name: e.target.value.trim() || 'Joueur' });

@@ -22,10 +22,6 @@ jobs:
             https://wwwapps.tc.gc.ca/saf-sec-sur/2/ccarcs-riacc/download/ccarcsdb.zip
           unzip -o ccarcsdb.zip -d ccar
           ls -la ccar
-          echo "----- carslayout.txt -----"
-          iconv -f latin1 -t utf-8 ccar/carslayout.txt | head -120 || true
-          echo "----- carscurr.txt (3 lignes) -----"
-          iconv -f latin1 -t utf-8 ccar/carscurr.txt | head -3 || true
       - name: Construire web/data/registre-ca.json
         run: python3 tools/build_registre.py ccar
       - name: Enregistrer si changé
@@ -34,4 +30,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add web/data/registre-ca.json
           git diff --cached --quiet || git commit -m "Registre canadien mis à jour ($(date -u +%F))"
+          git pull --rebase -q origin main
           git push

@@ -34,6 +34,7 @@ const RAW = [
   ['b737-700', '737-700', 'Boeing', 'ligne', 'commun'],
   ['b737-800', '737-800', 'Boeing', 'ligne', 'commun'],
   ['b737-max8', '737 MAX 8', 'Boeing', 'ligne', 'commun'],
+  ['b737-classic', '737 Classique (-200 à -500)', 'Boeing', 'ligne', 'rare'],
   ['b757', '757', 'Boeing', 'ligne', 'peuCommun'],
   ['b767', '767', 'Boeing', 'ligne', 'peuCommun'],
   ['b777', '777', 'Boeing', 'ligne', 'peuCommun'],
@@ -42,7 +43,7 @@ const RAW = [
   ['e175', 'E175', 'Embraer', 'ligne', 'commun'],
   ['e190', 'E190 / E195', 'Embraer', 'ligne', 'commun'],
   ['crj200', 'CRJ200', 'Bombardier', 'ligne', 'commun'],
-  ['crj900', 'CRJ900', 'Bombardier', 'ligne', 'commun'],
+  ['crj900', 'CRJ700 / CRJ900', 'Bombardier', 'ligne', 'commun'],
   // Régionaux et turbopropulseurs
   ['dash8-100', 'Dash 8-100/200', 'De Havilland Canada', 'regional', 'peuCommun'],
   ['dash8-300', 'Dash 8-300', 'De Havilland Canada', 'regional', 'peuCommun'],

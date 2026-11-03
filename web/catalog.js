@@ -49,6 +49,9 @@ const RAW = [
   ['dash8-300', 'Dash 8-300', 'De Havilland Canada', 'regional', 'peuCommun'],
   ['dash8-400', 'Dash 8-400', 'De Havilland Canada', 'regional', 'commun'],
   ['dash7', 'Dash 7', 'De Havilland Canada', 'regional', 'rare'],
+  ['jetstream', 'Jetstream 31/32', 'British Aerospace', 'regional', 'rare'],
+  ['dornier', 'Dornier 228 / 328', 'Dornier', 'regional', 'rare'],
+  ['hs748', 'HS 748', 'Hawker Siddeley', 'regional', 'epique'],
   ['atr42', 'ATR 42', 'ATR', 'regional', 'peuCommun'],
   ['atr72', 'ATR 72', 'ATR', 'regional', 'peuCommun'],
   ['saab340', 'Saab 340', 'Saab', 'regional', 'peuCommun'],
@@ -59,6 +62,8 @@ const RAW = [
   ['b747-8f', '747-8F', 'Boeing', 'cargo', 'rare'],
   ['b777f', '777F', 'Boeing', 'cargo', 'rare'],
   ['md11', 'MD-11', 'McDonnell Douglas', 'cargo', 'rare'],
+  ['f28', 'Fokker F28', 'Fokker', 'ligne', 'rare'],
+  ['bae146', 'BAe 146 / Avro RJ', 'British Aerospace', 'ligne', 'rare'],
   ['an124', 'An-124 Ruslan', 'Antonov', 'cargo', 'epique'],
   ['beluga-xl', 'BelugaXL', 'Airbus', 'cargo', 'epique'],
   // Aviation d'affaires
@@ -69,6 +74,9 @@ const RAW = [
   ['global', 'Global 6000 / 7500', 'Bombardier', 'affaires', 'rare'],
   ['learjet', 'Learjet', 'Bombardier', 'affaires', 'peuCommun'],
   ['g650', 'Gulfstream G650', 'Gulfstream', 'affaires', 'rare'],
+  ['falcon', 'Falcon (Dassault)', 'Dassault', 'affaires', 'peuCommun'],
+  ['phenom', 'Phenom / Praetor / Legacy', 'Embraer', 'affaires', 'peuCommun'],
+  ['pc24', 'PC-24', 'Pilatus', 'affaires', 'rare'],
   // Aviation générale et brousse
   ['c172', 'Cessna 172', 'Cessna', 'general', 'commun'],
   ['pa28', 'Piper PA-28', 'Piper', 'general', 'commun'],
@@ -78,6 +86,9 @@ const RAW = [
   // Missions spéciales
   ['cl415', 'CL-415 / DHC-515 (bombardier d’eau)', 'Canadair / De Havilland', 'special', 'rare'],
   ['dc3', 'DC-3 / C-47', 'Douglas', 'special', 'epique'],
+  ['at802', 'Air Tractor AT-802', 'Air Tractor', 'special', 'rare'],
+  ['electra', 'L-188 Electra (bombardier d’eau)', 'Lockheed', 'special', 'epique'],
+  ['convair', 'Convair 340/440/580', 'Convair', 'special', 'epique'],
   // Militaires
   ['c130', 'C-130 Hercules', 'Lockheed Martin', 'militaire', 'rare'],
   ['c17', 'C-17 Globemaster III', 'Boeing', 'militaire', 'epique'],

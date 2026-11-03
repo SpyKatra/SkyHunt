@@ -1,0 +1,39 @@
+{
+  "name": "skyhunt",
+  "version": "0.1.0",
+  "main": "index.ts",
+  "dependencies": {
+    "expo": "~56.0.24",
+    "expo-build-properties": "~56.0.27",
+    "expo-dev-client": "~56.0.28",
+    "expo-file-system": "~56.0.11",
+    "expo-location": "~56.0.26",
+    "expo-status-bar": "~56.0.4",
+    "react": "19.2.3",
+    "react-native": "0.85.3",
+    "react-native-fast-tflite": "3.0.1",
+    "react-native-nitro-modules": "0.37.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-vision-camera": "4.7.3",
+    "react-native-worklets-core": "1.6.3",
+    "vision-camera-resize-plugin": "3.2.0"
+  },
+  "devDependencies": {
+    "@babel/plugin-proposal-nullish-coalescing-operator": "^7.18.6",
+    "@babel/plugin-proposal-optional-chaining": "^7.21.0",
+    "@babel/plugin-transform-arrow-functions": "^7.29.7",
+    "@babel/plugin-transform-shorthand-properties": "^7.29.7",
+    "@babel/plugin-transform-template-literals": "^7.29.7",
+    "@babel/preset-typescript": "^7.29.7",
+    "@types/react": "~19.2.2",
+    "babel-preset-expo": "~56.0.21",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "private": true
+}

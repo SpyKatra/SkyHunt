@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "SkyHunt",
+    "slug": "skyhunt",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.spykatra.skyhunt",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche."
+      }
+    },
+    "android": {
+      "package": "com.spykatra.skyhunt",
+      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      "adaptiveIcon": {
+        "backgroundColor": "#0B1220",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "plugins": [
+      "expo-dev-client",
+      [
+        "react-native-vision-camera",
+        {
+          "cameraPermissionText": "SkyHunt utilise la caméra pour photographier les avions de ta collection.",
+          "enableFrameProcessors": true,
+          "enableMicrophonePermission": false,
+          "enableLocation": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche."
+        }
+      ],
+      [
+        "react-native-fast-tflite",
+        {
+          "enableCoreMLDelegate": true
+        }
+      ]
+    ]
+  }
+}

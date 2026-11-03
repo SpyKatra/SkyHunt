@@ -1,0 +1,156 @@
+import { useMemo, useState } from 'react';
+import { Platform } from 'react-native';
+import { useTensorflowModel } from 'react-native-fast-tflite';
+import { NitroModules } from 'react-native-nitro-modules';
+import { useFrameProcessor } from 'react-native-vision-camera';
+import { useSharedValue, Worklets } from 'react-native-worklets-core';
+import { useResizePlugin } from 'vision-camera-resize-plugin';
+import { AIRPLANE_CLASS, DETECTION_FPS, MODEL_INPUT } from './config';
+import type { Detection } from './types';
+
+type Rotation = '0deg' | '90deg' | '180deg' | '270deg';
+const ROTATIONS: Rotation[] = ['0deg', '90deg', '180deg', '270deg'];
+
+/**
+ * Charge le modèle EfficientDet-Lite0 (COCO) et renvoie un frameProcessor
+ * qui cherche le meilleur avion dans l'image, ~5 fois par seconde.
+ *
+ * `rotationOffset` (0–3) permet de corriger l'orientation si le cadre
+ * dessiné ne suit pas l'avion sur ton téléphone (bouton « ↻ » du diagnostic).
+ */
+export function useAircraftDetector(rotationOffset: number) {
+  const model = useTensorflowModel(
+    require('../assets/models/efficientdet.tflite'),
+    Platform.OS === 'ios' ? ['core-ml'] : [],
+  );
+  const loaded = model.state === 'loaded' ? model.model : undefined;
+  const boxed = useMemo(() => (loaded != null ? NitroModules.box(loaded) : undefined), [loaded]);
+
+  const { resize } = useResizePlugin();
+  const [detection, setDetection] = useState<Detection | null>(null);
+  const report = useMemo(() => Worklets.createRunOnJS(setDetection), []);
+  const lastRun = useSharedValue(0);
+  const intervalMs = 1000 / DETECTION_FPS;
+
+  const frameProcessor = useFrameProcessor(
+    (frame) => {
+      'worklet';
+      if (boxed == null) return;
+
+      // Limite l'analyse à ~5 images/s. Pas de sous-worklet : le plugin Babel
+      // détacherait les méthodes de l'objet natif (unbox / runSync).
+      const t0 = Date.now();
+      if (t0 - lastRun.value < intervalMs) return;
+      lastRun.value = t0;
+      {
+        const tflite = boxed.unbox();
+
+        // 1. Orientation : on remet l'image à l'endroit pour le modèle.
+        let base = 0;
+        if (frame.orientation === 'landscape-left') base = 1;
+        else if (frame.orientation === 'portrait-upside-down') base = 2;
+        else if (frame.orientation === 'landscape-right') base = 3;
+        const rotIndex = (base + rotationOffset) % 4;
+        const rotation = ROTATIONS[rotIndex];
+        const swapped = rotIndex % 2 === 1;
+        const aspect = swapped ? frame.height / frame.width : frame.width / frame.height;
+
+        // 2. Redimensionnement 320×320 RGB.
+        const rgb = resize(frame, {
+          scale: { width: MODEL_INPUT, height: MODEL_INPUT },
+          rotation,
+          pixelFormat: 'rgb',
+          dataType: 'uint8',
+        });
+        const input = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength) as ArrayBuffer;
+
+        // 3. Inférence. Sorties : boîtes [25×4], classes [25], scores [25], nombre [1].
+        const out = tflite.runSync([input]);
+        const boxes = new Float32Array(out[0]);
+        const classes = new Float32Array(out[1]);
+        const scores = new Float32Array(out[2]);
+        const count = Math.min(Math.round(new Float32Array(out[3])[0] ?? 0), scores.length);
+
+        let best = -1;
+        let bestScore = 0;
+        for (let i = 0; i < count; i++) {
+          if (Math.round(classes[i]) === AIRPLANE_CLASS && scores[i] > bestScore) {
+            best = i;
+            bestScore = scores[i];
+          }
+        }
+
+        if (best < 0) {
+          report({
+            found: false, confidence: 0, box: null, sizeRatio: 0,
+            sharpness: 0, brightness: 0, aspect, inferenceMs: Date.now() - t0,
+          });
+          return;
+        }
+
+        // Boîte au format [ymin, xmin, ymax, xmax], normalisée 0–1.
+        const ymin = Math.max(0, boxes[best * 4]);
+        const xmin = Math.max(0, boxes[best * 4 + 1]);
+        const ymax = Math.min(1, boxes[best * 4 + 2]);
+        const xmax = Math.min(1, boxes[best * 4 + 3]);
+        const w = xmax - xmin;
+        const h = ymax - ymin;
+        const sizeRatio = Math.max(w, h);
+
+        // 4. Netteté (variance du laplacien) et luminosité sur la zone de l'avion.
+        const S = MODEL_INPUT;
+        const x0 = Math.max(1, Math.floor(xmin * S));
+        const x1 = Math.min(S - 2, Math.ceil(xmax * S));
+        const y0 = Math.max(1, Math.floor(ymin * S));
+        const y1 = Math.min(S - 2, Math.ceil(ymax * S));
+        const step = Math.max(1, Math.floor(Math.max(x1 - x0, y1 - y0) / 120));
+        let sum = 0;
+        let sumSq = 0;
+        let lum = 0;
+        let n = 0;
+        for (let y = y0; y <= y1; y += step) {
+          for (let x = x0; x <= x1; x += step) {
+            // Gris = 0,299 R + 0,587 V + 0,114 B ; laplacien 4-voisins.
+            const k = (y * S + x) * 3;
+            const kl = k - 3;
+            const kr = k + 3;
+            const ku = k - S * 3;
+            const kd = k + S * 3;
+            const c = 0.299 * rgb[k] + 0.587 * rgb[k + 1] + 0.114 * rgb[k + 2];
+            const l = 0.299 * rgb[kl] + 0.587 * rgb[kl + 1] + 0.114 * rgb[kl + 2];
+            const r = 0.299 * rgb[kr] + 0.587 * rgb[kr + 1] + 0.114 * rgb[kr + 2];
+            const u = 0.299 * rgb[ku] + 0.587 * rgb[ku + 1] + 0.114 * rgb[ku + 2];
+            const dn = 0.299 * rgb[kd] + 0.587 * rgb[kd + 1] + 0.114 * rgb[kd + 2];
+            const lap = l + r + u + dn - 4 * c;
+            sum += lap;
+            sumSq += lap * lap;
+            lum += c;
+            n++;
+          }
+        }
+        const mean = n > 0 ? sum / n : 0;
+        const sharpness = n > 0 ? sumSq / n - mean * mean : 0;
+        const brightness = n > 0 ? lum / n : 0;
+
+        report({
+          found: true,
+          confidence: bestScore,
+          box: { x: xmin, y: ymin, w, h },
+          sizeRatio,
+          sharpness,
+          brightness,
+          aspect,
+          inferenceMs: Date.now() - t0,
+        });
+      }
+    },
+    [boxed, rotationOffset, resize, report, lastRun, intervalMs],
+  );
+
+  return {
+    frameProcessor,
+    detection,
+    modelState: model.state,
+    modelError: model.state === 'error' ? model.error.message : null,
+  };
+}

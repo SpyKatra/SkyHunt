@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0B1220" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SkyHunt" />
+  <title>SkyHunt — prototype</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="app">
+    <!-- Écran caméra -->
+    <section id="view-camera" class="view active">
+      <div id="stage">
+        <video id="video" playsinline muted autoplay></video>
+        <canvas id="overlay"></canvas>
+      </div>
+
+      <div id="status" class="panel">Touchez « Démarrer la caméra »</div>
+
+      <div id="debug" class="panel hidden">
+        <div class="row"><span>Confiance</span><b id="d-conf">–</b></div>
+        <div class="row"><span>Taille</span><b id="d-size">–</b></div>
+        <div class="row"><span>Netteté</span><b id="d-sharp">–</b></div>
+        <div class="row"><span>Luminosité</span><b id="d-bright">–</b></div>
+        <div class="row"><span>Analyse</span><b id="d-ms">–</b></div>
+        <details>
+          <summary>Régler les seuils</summary>
+          <label>Confiance min <output id="o-conf"></output>
+            <input id="s-conf" type="range" min="0.2" max="0.9" step="0.05" /></label>
+          <label>Taille min <output id="o-size"></output>
+            <input id="s-size" type="range" min="0.05" max="0.5" step="0.01" /></label>
+          <label>Netteté min <output id="o-sharp"></output>
+            <input id="s-sharp" type="range" min="0" max="400" step="5" /></label>
+          <button id="reset-thresholds" class="small">Valeurs par défaut</button>
+        </details>
+      </div>
+
+      <div id="start-wrap">
+        <button id="start" class="primary">Démarrer la caméra</button>
+        <p class="hint">Autorise la caméra et la position quand Safari le demande.</p>
+      </div>
+
+      <div id="controls">
+        <button id="toggle-debug" class="small">Diagnostic</button>
+        <button id="shutter" aria-label="Prendre la photo" disabled><span></span></button>
+        <span class="spacer"></span>
+      </div>
+
+      <div id="toast" class="hidden"></div>
+    </section>
+
+    <!-- Écran collection -->
+    <section id="view-collection" class="view">
+      <header class="coll-head">
+        <h1>Ma collection</h1>
+        <p id="coll-sub"></p>
+        <div class="coll-actions">
+          <button id="copy-data" class="small">Copier les mesures</button>
+          <button id="clear-all" class="small danger">Tout effacer</button>
+        </div>
+      </header>
+      <ul id="coll-list"></ul>
+    </section>
+  </main>
+
+  <nav id="tabs">
+    <button data-view="camera" class="tab active">Chasser</button>
+    <button data-view="collection" class="tab" id="tab-coll">Collection</button>
+  </nav>
+
+  <!-- La bibliothèque TFLite se termine par « exports.tfweb = … » : on lui fournit un objet vide. -->
+  <script>var exports = {};</script>
+  <script src="vendor/tflite/tflite_web_api_client.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

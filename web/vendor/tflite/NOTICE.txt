@@ -1,0 +1,5 @@
+TFLite Web API (@tensorflow/tfjs-tflite 0.0.1-alpha.10)
+Copyright Google LLC / The TensorFlow Authors
+Licence : Apache License 2.0 — https://www.apache.org/licenses/LICENSE-2.0
+
+Modèle efficientdet.tflite (EfficientDet-Lite0, COCO) : TensorFlow, Apache License 2.0.

@@ -19,7 +19,18 @@ de l'appareil et du lieu de la photo, avec des classements mondial et national.
 La page est publiée automatiquement par GitHub Actions à chaque modification de `web/`
 (Réglages du dépôt → Pages → Source : **GitHub Actions**).
 
-### Ce que fait le prototype
+### Ce que fait le prototype (0.2)
+
+**Jeu**
+
+- **Cartes de collection** : chaque capture validée devient une carte (Commun → Légendaire) avec animation de révélation.
+- **Identification** : tu choisis le type d'avion dans un catalogue de 57 appareils (en attendant l'IA), immatriculation facultative.
+- **Points** selon la grille du projet : (appareil + lieu) × qualité × répétition + bonus nouveau type ; même immatriculation = 0 pt.
+- **Album** : tout le catalogue par catégorie, avec les types encore à découvrir et le pourcentage de complétion.
+- **Profil** : niveau et titre, XP, statistiques, répartition par rareté, 12 succès à débloquer.
+- **Carte du monde** : toutes tes captures sur une carte OpenStreetMap, colorées par rareté.
+
+**Validation de la photo**
 
 - Caméra intégrée seulement : impossible d'importer une photo de la galerie.
 - Détection d'avion en direct (EfficientDet-Lite0, modèle COCO, ~5 analyses/s, exécuté sur le téléphone).

@@ -11,18 +11,22 @@
   <title>SkyHunt — prototype</title>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="style.css?v=0.2" />
 </head>
 <body>
   <main id="app">
-    <!-- Écran caméra -->
+    <!-- ============ Chasser (caméra) ============ -->
     <section id="view-camera" class="view active">
       <div id="stage">
         <video id="video" playsinline muted autoplay></video>
         <canvas id="overlay"></canvas>
       </div>
 
-      <div id="status" class="panel">Touchez « Démarrer la caméra »</div>
+      <div id="hud-top">
+        <div id="status" class="panel">Touchez « Démarrer la caméra »</div>
+        <div id="hud-level" class="panel"><span id="hud-lvl">Niv. 1</span><div class="mini-bar"><i id="hud-xp"></i></div></div>
+      </div>
 
       <div id="debug" class="panel hidden">
         <div class="row"><span>Confiance</span><b id="d-conf">–</b></div>
@@ -37,12 +41,15 @@
           <label>Taille min <output id="o-size"></output>
             <input id="s-size" type="range" min="0.05" max="0.5" step="0.01" /></label>
           <label>Netteté min <output id="o-sharp"></output>
-            <input id="s-sharp" type="range" min="0" max="400" step="5" /></label>
+            <input id="s-sharp" type="range" min="0" max="8000" step="50" /></label>
           <button id="reset-thresholds" class="small">Valeurs par défaut</button>
         </details>
       </div>
 
       <div id="start-wrap">
+        <img src="icon-192.png" alt="" class="start-logo" />
+        <h1>SkyHunt</h1>
+        <p class="tagline">Photographie de vrais avions. Construis ta flotte.</p>
         <button id="start" class="primary">Démarrer la caméra</button>
         <p class="hint">Autorise la caméra et la position quand Safari le demande.</p>
       </div>
@@ -56,28 +63,77 @@
       <div id="toast" class="hidden"></div>
     </section>
 
-    <!-- Écran collection -->
-    <section id="view-collection" class="view">
-      <header class="coll-head">
-        <h1>Ma collection</h1>
-        <p id="coll-sub"></p>
-        <div class="coll-actions">
-          <button id="copy-data" class="small">Copier les mesures</button>
-          <button id="clear-all" class="small danger">Tout effacer</button>
+    <!-- ============ Cartes (collection) ============ -->
+    <section id="view-cards" class="view scroll">
+      <header class="page-head">
+        <h1>Mes cartes</h1>
+        <p id="cards-sub"></p>
+        <div class="chips" id="cards-filter">
+          <button class="chip active" data-filter="cards">Cartes</button>
+          <button class="chip" data-filter="album">Album</button>
+          <button class="chip" data-filter="refused">Refusées</button>
         </div>
       </header>
-      <ul id="coll-list"></ul>
+      <div id="cards-content"></div>
+    </section>
+
+    <!-- ============ Carte du monde ============ -->
+    <section id="view-map" class="view">
+      <div id="map"></div>
+      <div id="map-info" class="panel"></div>
+    </section>
+
+    <!-- ============ Profil ============ -->
+    <section id="view-profile" class="view scroll">
+      <div id="profile-content"></div>
     </section>
   </main>
 
   <nav id="tabs">
-    <button data-view="camera" class="tab active">Chasser</button>
-    <button data-view="collection" class="tab" id="tab-coll">Collection</button>
+    <button data-view="camera" class="tab active"><span class="ti">◎</span>Chasser</button>
+    <button data-view="cards" class="tab"><span class="ti">▦</span><span id="tab-cards">Cartes</span></button>
+    <button data-view="map" class="tab"><span class="ti">⌖</span>Carte</button>
+    <button data-view="profile" class="tab"><span class="ti">☺</span>Profil</button>
   </nav>
 
+  <!-- Fiche d'identification -->
+  <div id="identify" class="sheet-wrap hidden">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2>Quel avion as-tu capturé ?</h2>
+        <button class="close" data-close="identify" aria-label="Fermer">✕</button>
+      </div>
+      <img id="identify-photo" alt="" />
+      <input id="identify-search" type="search" placeholder="Rechercher (ex. Dash 8, A320, Saab)" autocomplete="off" />
+      <input id="identify-reg" type="text" placeholder="Immatriculation (facultatif, ex. C-GKUG)" autocapitalize="characters" autocomplete="off" />
+      <div id="identify-list"></div>
+      <button id="identify-unknown" class="ghost">Je ne sais pas — garder en « Avion mystère »</button>
+    </div>
+  </div>
+
+  <!-- Révélation de la carte -->
+  <div id="reveal" class="hidden">
+    <div id="reveal-burst"></div>
+    <div id="reveal-card"></div>
+    <div id="reveal-details"></div>
+    <button id="reveal-ok" class="primary">Continuer</button>
+  </div>
+
+  <!-- Détail d'une carte -->
+  <div id="detail" class="sheet-wrap hidden">
+    <div class="sheet">
+      <div class="sheet-head">
+        <h2 id="detail-title"></h2>
+        <button class="close" data-close="detail" aria-label="Fermer">✕</button>
+      </div>
+      <div id="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
   <!-- La bibliothèque TFLite se termine par « exports.tfweb = … » : on lui fournit un objet vide. -->
   <script>var exports = {};</script>
   <script src="vendor/tflite/tflite_web_api_client.js"></script>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=0.2"></script>
 </body>
 </html>

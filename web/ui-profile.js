@@ -1,32 +1,186 @@
 // Écran « Profil » : niveau, XP, statistiques, succès et réglages.
 import { RARITIES } from './catalog.js';
 import { achievementState, computeStats, levelFor } from './game.js';
-import { $, esc } from './ui-common.js';
+import { $, esc, toast } from './ui-common.js';
+import {
+  cloudState, deleteAccount, saveRemoteProfile, sendCode, signOut, sync, verifyCode,
+} from './cloud.js';
 
-const COUNTRIES = ['Canada', 'France', 'Belgique', 'Suisse', 'États-Unis', 'Royaume-Uni', 'Autre'];
+// Pays du classement national (codes ISO 3166-1), affichés en français et triés.
+const COUNTRY_CODES = ['CA', 'US', 'FR', 'BE', 'CH', 'LU', 'MC', 'GB', 'IE', 'DE', 'ES', 'IT', 'PT', 'NL', 'AT',
+  'DK', 'SE', 'NO', 'FI', 'PL', 'CZ', 'GR', 'MA', 'DZ', 'TN', 'SN', 'CI', 'CM', 'HT', 'MX', 'BR', 'AR', 'CL',
+  'AU', 'NZ', 'JP', 'KR', 'SG', 'AE', 'IN', 'ZA'];
+const regionName = (() => {
+  try { const dn = new Intl.DisplayNames(['fr'], { type: 'region' }); return (c) => dn.of(c) || c; } catch { return (c) => c; }
+})();
+const COUNTRIES = COUNTRY_CODES.map((code) => ({ code, name: regionName(code) }))
+  .sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+// Anciennes valeurs (prototype 0.3) → codes.
+const OLD_NAMES = { Canada: 'CA', France: 'FR', Belgique: 'BE', Suisse: 'CH', 'États-Unis': 'US', 'Royaume-Uni': 'GB' };
 
 export function loadProfile() {
-  try {
-    return { name: 'Joueur', country: 'Canada', ...JSON.parse(localStorage.getItem('skyhunt.profile') || '{}') };
-  } catch {
-    return { name: 'Joueur', country: 'Canada' };
-  }
+  let p = { name: 'Joueur', country: 'CA' };
+  try { p = { ...p, ...JSON.parse(localStorage.getItem('skyhunt.profile') || '{}') }; } catch { /* mode privé */ }
+  if (!/^[A-Z]{2}$/.test(p.country)) p.country = OLD_NAMES[p.country] || 'CA';
+  // Connecté : le profil du serveur fait foi.
+  const cs = cloudState();
+  if (cs.user && cs.profile) p = { ...p, name: cs.profile.pseudo, country: cs.profile.country };
+  return p;
 }
 function saveProfile(p) {
   try { localStorage.setItem('skyhunt.profile', JSON.stringify(p)); } catch { /* mode privé */ }
 }
 
-let ctx = null; // { getList, onCopy, onClear }
+let ctx = null; // { getList, onCopy, onClear, onAccountChange }
+// Saisies en cours, gardées entre deux rendus (l'écran se redessine quand la synchro avance).
+const auth = { email: '', code: '', pseudo: null, country: null, codeSent: false, busy: false };
 
 export function initProfile(context) {
   ctx = context;
 }
 
-export function renderProfile() {
+/* =================== Section « Compte » =================== */
+function accountHtml() {
+  const cs = cloudState();
+  if (!cs.enabled) return '';
+  const dis = auth.busy ? 'disabled' : '';
+  if (!cs.user) {
+    return `
+    <div class="section settings account" id="account">
+      <h2>Compte</h2>
+      <p class="muted">Crée un compte (ou connecte-toi) pour sauvegarder tes cartes et participer aux classements.
+        Les cartes déjà sur ce téléphone seront ajoutées à ton compte.</p>
+      ${auth.codeSent ? `
+        <p>Courriel envoyé à <b>${esc(auth.email)}</b> (regarde aussi les indésirables). Entre le code reçu, ou touche le lien du courriel : il ouvre SkyHunt dans Safari, déjà connecté.</p>
+        <label>Code à 6 chiffres<input id="a-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" value="${esc(auth.code)}" /></label>
+        <div class="row2">
+          <button id="a-verify" class="primary-small" ${dis}>Valider</button>
+          <button id="a-back" ${dis}>Changer d'adresse</button>
+        </div>` : `
+        <label>Courriel<input id="a-email" type="email" autocomplete="email" autocapitalize="off" value="${esc(auth.email)}" /></label>
+        <button id="a-send" class="primary-small" ${dis}>Recevoir un code</button>`}
+    </div>`;
+  }
+  if (!cs.profileLoaded) {
+    return `<div class="section settings account" id="account"><h2>Compte</h2>
+      <p class="muted">${cs.error ? esc(cs.error) : 'Chargement du profil…'}</p>
+      <button id="a-logout">Se déconnecter</button></div>`;
+  }
+  if (!cs.profile) {
+    const p = loadProfile();
+    return `
+    <div class="section settings account" id="account">
+      <h2>Créer ton profil</h2>
+      <p class="muted">Ton pseudo est visible dans les classements. Le pays sert au classement national.</p>
+      <label>Pseudo<input id="a-pseudo" maxlength="20" value="${esc(auth.pseudo ?? (p.name === 'Joueur' ? '' : p.name))}" /></label>
+      <label>Pays<select id="a-country">${countryOptions(auth.country || p.country)}</select></label>
+      <div class="row2">
+        <button id="a-create" class="primary-small" ${dis}>Créer mon profil</button>
+        <button id="a-logout" ${dis}>Se déconnecter</button>
+      </div>
+    </div>`;
+  }
+  const status = cs.syncing ? 'Envoi en cours…'
+    : cs.error ? `<span class="err">${esc(cs.error)}</span>`
+      : cs.pending ? `${cs.pending} modification${cs.pending > 1 ? 's' : ''} en attente`
+        : `À jour${cs.lastSync ? ` (${cs.lastSync.toLocaleTimeString('fr-CA', { timeStyle: 'short' })})` : ''}`;
+  return `
+    <div class="section settings account" id="account">
+      <h2>Compte</h2>
+      <div class="kv"><span>Courriel</span><b>${esc(cs.user.email || '')}</b></div>
+      <div class="kv"><span>Sauvegarde</span><b id="a-status">${status}</b></div>
+      <div class="row2">
+        <button id="a-sync" ${cs.syncing ? 'disabled' : ''}>Synchroniser</button>
+        <button id="a-logout">Se déconnecter</button>
+      </div>
+      <button id="a-delete" class="link-danger">Supprimer mon compte</button>
+    </div>`;
+}
+
+function countryOptions(sel) {
+  return COUNTRIES.map((c) => `<option value="${c.code}" ${c.code === sel ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+}
+
+async function busy(fn) {
+  auth.busy = true;
+  renderProfile();
+  try { await fn(); } catch (e) { toast(e.message || String(e)); } finally { auth.busy = false; renderProfile(); }
+}
+
+function bindAccount() {
+  const on = (id, fn) => { const el = $(id); if (el) el.addEventListener('click', fn); };
+  const keep = (id, key) => { const el = $(id); if (el) el.addEventListener('input', () => { auth[key] = el.value; }); };
+  keep('a-email', 'email');
+  keep('a-code', 'code');
+  keep('a-pseudo', 'pseudo');
+  keep('a-country', 'country');
+  on('a-send', () => {
+    const email = $('a-email').value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { toast('Adresse courriel invalide.'); return; }
+    auth.email = email;
+    busy(async () => { await sendCode(email); auth.codeSent = true; });
+  });
+  on('a-back', () => { auth.codeSent = false; auth.code = ''; renderProfile(); });
+  on('a-verify', () => {
+    const code = $('a-code').value.replace(/\D/g, '');
+    if (code.length < 6) { toast('Entre les 6 chiffres du code.'); return; }
+    busy(async () => {
+      await verifyCode(auth.email, code);
+      auth.codeSent = false;
+      auth.code = '';
+      await ctx.onAccountChange();
+      toast('Connecté !');
+    });
+  });
+  on('a-create', () => {
+    const pseudo = $('a-pseudo').value.trim();
+    if (pseudo.length < 2) { toast('Pseudo : au moins 2 caractères.'); return; }
+    const country = $('a-country').value;
+    busy(async () => {
+      await saveRemoteProfile({ pseudo, country });
+      saveProfile({ ...loadProfile(), name: pseudo, country });
+      auth.pseudo = null;
+      auth.country = null;
+      toast('Profil créé.');
+    });
+  });
+  on('a-sync', () => busy(async () => {
+    const r = await sync();
+    if (cloudState().error) throw new Error(cloudState().error);
+    toast(r.pushed || r.pulled ? `${r.pushed} envoyée(s), ${r.pulled} reçue(s)` : 'Déjà à jour');
+  }));
+  on('a-logout', () => busy(async () => {
+    let r = await signOut();
+    if (!r.ok) {
+      if (!confirm(`${r.pending} modification(s) n'ont pas pu être envoyées (pas de réseau ?). Se déconnecter quand même et les perdre ?`)) return;
+      r = await signOut({ force: true });
+    }
+    await ctx.onAccountChange();
+    toast('Déconnecté. Tes cartes restent sur ton compte.');
+  }));
+  on('a-delete', () => {
+    if (!confirm('Supprimer définitivement ton compte, ton profil, toutes tes captures et leurs photos (sur le serveur et sur ce téléphone) ?')) return;
+    if (prompt('Pour confirmer, écris SUPPRIMER') !== 'SUPPRIMER') return;
+    busy(async () => {
+      await deleteAccount();
+      await ctx.onAccountChange();
+      toast('Compte supprimé.');
+    });
+  });
+}
+
+/** soft : appel automatique (état du serveur) — ne pas effacer une saisie en cours. */
+export function renderProfile({ soft = false } = {}) {
+  if (soft) {
+    const a = document.activeElement;
+    if (a && $('profile-content').contains(a) && /INPUT|SELECT|TEXTAREA/.test(a.tagName)) return;
+  }
   const list = ctx.getList();
   const s = computeStats(list);
   const lv = levelFor(s.xp);
   const p = loadProfile();
+  const cs = cloudState();
+  const online = cs.user && cs.profile;
   const ach = achievementState(s);
   const unlocked = ach.filter((a) => a.unlocked).length;
   const maxRarity = Math.max(1, ...Object.values(s.byRarity));
@@ -73,23 +227,41 @@ export function renderProfile() {
         </div>`).join('')}
     </div>
 
+    ${accountHtml()}
+
     <div class="section settings">
       <h2>Réglages</h2>
+      ${cs.user && !cs.profile ? '' : `
       <label>Pseudo<input id="p-name" maxlength="20" value="${esc(p.name)}" /></label>
-      <label>Pays du compte (classement national, bientôt)
-        <select id="p-country">${COUNTRIES.map((c) => `<option ${c === p.country ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+      <label>Pays du compte (classement national)
+        <select id="p-country">${countryOptions(p.country)}</select></label>`}
       <div class="row2">
         <button id="p-copy">Copier les mesures</button>
         <button id="p-clear" class="danger">Tout effacer</button>
       </div>
     </div>
-    <p class="foot-note">Prototype 0.3 · les photos restent sur ce téléphone.<br />Immatriculations canadiennes : registre de Transport Canada (mis à jour chaque semaine).</p>`;
+    <p class="foot-note">Prototype 0.4 · ${online ? 'tes captures sont sauvegardées sur ton compte' : 'les photos restent sur ce téléphone'}.<br />Immatriculations canadiennes : registre de Transport Canada (mis à jour chaque semaine).</p>`;
 
-  $('p-name').addEventListener('change', (e) => {
-    saveProfile({ ...loadProfile(), name: e.target.value.trim() || 'Joueur' });
-    renderProfile();
-  });
-  $('p-country').addEventListener('change', (e) => saveProfile({ ...loadProfile(), country: e.target.value }));
+  const pName = $('p-name');
+  if (pName) {
+    pName.addEventListener('change', async (e) => {
+      const name = e.target.value.trim() || 'Joueur';
+      if (online) {
+        try { await saveRemoteProfile({ pseudo: name, country: loadProfile().country }); } catch (err) { toast(err.message); }
+      }
+      saveProfile({ ...loadProfile(), name: online ? loadProfile().name : name });
+      renderProfile();
+    });
+    $('p-country').addEventListener('change', async (e) => {
+      const country = e.target.value;
+      if (online) {
+        try { await saveRemoteProfile({ pseudo: loadProfile().name, country }); } catch (err) { toast(err.message); }
+      }
+      saveProfile({ ...loadProfile(), country });
+      renderProfile();
+    });
+  }
   $('p-copy').addEventListener('click', ctx.onCopy);
   $('p-clear').addEventListener('click', ctx.onClear);
+  bindAccount();
 }

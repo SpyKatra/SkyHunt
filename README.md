@@ -8,6 +8,7 @@ de l'appareil et du lieu de la photo, avec des classements mondial et national.
 | Dossier | Quoi | État |
 | --- | --- | --- |
 | [`web/`](web) | Prototype web (Safari / Chrome sur téléphone) : caméra, détection d'avion en direct, validation, carnet local | Prêt à tester |
+| [`supabase/`](supabase) | Serveur : comptes, captures et photos (Supabase), règles de sécurité | Code prêt, projet en ligne à créer |
 | [`native/`](native) | Prototype natif Expo / React Native (iOS et Android), même logique | Prêt, demande un build EAS |
 
 ## Tester la version web sur iPhone
@@ -70,3 +71,4 @@ python3 -m http.server 8000
 - Tesseract.js et données `eng` (`web/vendor/tesseract`) : licence Apache 2.0.
 - Leaflet (`web/vendor/leaflet`) : licence BSD-2 ; fonds de carte © contributeurs OpenStreetMap.
 - Registre d'immatriculation des aéronefs civils canadiens : Transport Canada.
+- supabase-js (`web/vendor/supabase`) : licence MIT.

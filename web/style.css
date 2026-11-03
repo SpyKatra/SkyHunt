@@ -217,6 +217,15 @@ h1, h2, h3 { margin: 0; }
 .settings .row2 { display: flex; gap: 8px; margin-top: 6px; }
 .settings .row2 button { flex: 1; padding: 11px; border-radius: 10px; background: var(--card); font-weight: 600; font-size: 14px; }
 .settings .danger { color: #fca5a5; }
+.account p { margin: 0 0 10px; font-size: 14px; }
+.account .muted { color: var(--muted); font-size: 13px; }
+.account .kv { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 14px; }
+.account .kv span { color: var(--muted); }
+.account .kv b { text-align: right; overflow-wrap: anywhere; }
+.account .err { color: #fca5a5; font-weight: 600; }
+.settings .primary-small, .settings .row2 .primary-small { width: 100%; padding: 12px; border-radius: 10px; background: var(--accent); font-weight: 700; font-size: 15px; }
+.settings button:disabled { opacity: .5; }
+.link-danger { display: block; margin: 14px auto 0; color: #fca5a5; font-size: 13px; text-decoration: underline; }
 .foot-note { color: var(--muted); font-size: 12px; text-align: center; padding: 18px 20px 30px; }
 
 /* ================= Onglets ================= */

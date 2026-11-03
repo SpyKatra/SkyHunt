@@ -9,9 +9,11 @@ mondial et national (pays choisi à la création du compte).
   https://claude.ai/artifact/6EA6S2uTtjJNcucsHnRqbv (document privé de Spy).
 - Version web en ligne : https://spykatra.github.io/SkyHunt/ (publiée par GitHub Actions à chaque push dans `web/`).
 
-## État actuel : prototype 0.3 (novembre 2026)
+## État actuel : prototype 0.4 (novembre 2026)
 
-Tout tourne **sur le téléphone**, sans serveur : photos et carnet dans IndexedDB.
+Tout tourne **sur le téléphone** (IndexedDB, hors ligne possible). Avec un compte, les captures sont
+envoyées sur Supabase et récupérées sur les autres appareils (étape 1 en cours : code prêt, projet en ligne à créer
+par Spy, voir `supabase/README.md`).
 
 | Fonction | Où |
 | --- | --- |
@@ -23,6 +25,8 @@ Tout tourne **sur le téléphone**, sans serveur : photos et carnet dans Indexed
 | Catalogue de 69 types, 5 raretés, aéroports de référence | `web/catalog.js` |
 | Points, niveaux, 12 succès, statistiques | `web/game.js` |
 | Écrans : Chasser, Cartes (cartes / album / refusées), Carte (Leaflet + OSM), Profil | `web/ui-*.js` |
+| Compte (code à 6 chiffres par courriel), profil pseudo + pays ISO, synchro des captures, suppression du compte | `web/cloud.js`, `web/cloud-config.js`, `web/ui-profile.js` |
+| Serveur : tables, RLS, mesures figées, photos privées | `supabase/migrations/`, `supabase/README.md` |
 | Prototype natif Expo (caméra + détection, même logique, pas encore les cartes/profil/OCR) | `native/` |
 
 ### Règle de points (document de projet)
@@ -47,6 +51,9 @@ Tout tourne **sur le téléphone**, sans serveur : photos et carnet dans Indexed
   certains pays interdisent ces photos. Ne jamais encourager l'entrée en zone réglementée.
 - Spy est autorisé à photographier depuis une cour privée côté piste : ne pas bloquer ces zones
   par défaut ; prévoir plus tard un statut « accès autorisé ».
+- Serveur : les points ne sont **jamais stockés** ; les mesures d'une capture sont figées après l'envoi (déclencheur),
+  seule l'identification change. Photo envoyée seulement pour les captures valides.
+  Toute modification du schéma = **nouvelle** migration dans `supabase/migrations/` (ne pas réécrire l'ancienne).
 - Monétisation sans « pay-to-win » : aucun achat ne doit rapporter de points.
 - Natif : versions **figées** dans `native/` (Expo SDK 56, RN 0.85, vision-camera 4.7.3,
   worklets-core 1.6.3, resize-plugin 3.2.0, fast-tflite 3.0.1, nitro-modules 0.37.1).
@@ -58,9 +65,13 @@ Tout tourne **sur le téléphone**, sans serveur : photos et carnet dans Indexed
 ## Tester
 
 ```bash
+cd tests && npm install && npx playwright install chromium   # une fois
 cd web && python3 -m http.server 8766          # terminal 1
-python3 tests/make_video.py                    # crée tests/cam.y4m (Pillow + ffmpeg)
+python3 tests/make_video.py                    # crée tests/cam.y4m (Pillow + ffmpeg ou imageio-ffmpeg)
 node tests/e2e.js                              # terminal 2 (Playwright + Chromium)
+npx supabase@3.0.0 start                       # serveur local (Docker), puis :
+node tests/cloud.js                            # règles du serveur
+node tests/e2e-cloud.js                        # compte + synchro entre 2 « téléphones »
 ```
 
 `tests/e2e.js` utilise une fausse caméra (avion dessiné : loin → proche avec « C-FJEP » → flou) et
@@ -85,7 +96,8 @@ lointaines et en contre-jour pour le régler.
 ## Feuille de route (vers une vraie app)
 
 1. **Serveur et comptes** : Supabase (PostgreSQL + PostGIS, Auth avec Apple / Google / courriel, Storage).
-   Envoyer les captures, garder un cache local. ← **prochaine étape**
+   Envoyer les captures, garder un cache local. ← **en cours** : code et tests faits ; reste à créer le projet
+   en ligne (région ca-central-1), remplir `web/cloud-config.js`, puis un SMTP avant la bêta.
 2. **Classements** : mondial, national (pays du compte), mensuel, amis ; rareté des lieux calculée
    à partir des captures (remplace P_lieu = 1).
 3. **Passage en natif** : porter les fonctions web dans `native/`, compte Apple Developer, EAS Build.

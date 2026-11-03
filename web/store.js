@@ -22,6 +22,7 @@ async function tx(mode, fn) {
 }
 
 export const addCapture = (c) => tx('readwrite', (s) => s.put(c));
+export const getCapture = (id) => tx('readonly', (s) => s.get(id));
 export const deleteCapture = (id) => tx('readwrite', (s) => s.delete(id));
 export const clearCaptures = () => tx('readwrite', (s) => s.clear());
 export async function listCaptures() {

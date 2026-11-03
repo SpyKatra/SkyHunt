@@ -2,6 +2,7 @@ import { DEFAULT_THRESHOLDS, DETECTION_INTERVAL_MS } from './config.js';
 import { createDetector } from './detector.js';
 import { achievementState, computeStats, levelFor, recomputeAll } from './game.js';
 import { addCapture, clearCaptures, deleteCapture, listCaptures } from './store.js';
+import { cloudState, initCloud, onCloudChange, queueDelete, scheduleSync, stamp } from './cloud.js';
 import { initCards, openDetail, renderCards } from './ui-cards.js';
 import { $, forgetPhoto, toast } from './ui-common.js';
 import { identify, initIdentify } from './ui-identify.js';
@@ -53,8 +54,9 @@ async function saveAndDiff(record) {
   const before = computeStats(state.list);
   const beforeAch = new Set(achievementState(before).filter((a) => a.unlocked).map((a) => a.id));
   const beforeLv = levelFor(before.xp).level;
-  await addCapture(record);
+  await addCapture(stamp(record));
   await reload();
+  scheduleSync();
   const after = computeStats(state.list);
   const lv = levelFor(after.xp);
   return {
@@ -278,8 +280,9 @@ async function capture() {
     };
 
     if (!valid) {
-      await addCapture(record);
+      await addCapture(stamp(record));
       await reload();
+      scheduleSync();
       toast(`Refusée : ${reasons[0] || 'photo non valide'}`);
       return;
     }
@@ -309,14 +312,17 @@ async function changeType(id) {
   if (!c) return;
   const ident = await identify(c, ownedTypes());
   const before = c.points;
-  await addCapture({ ...rawOf(c), ...ident });
+  await addCapture(stamp({ ...rawOf(c), ...ident }));
   await reload();
+  scheduleSync();
   const after = state.list.find((x) => x.id === id);
   toast(`Carte mise à jour : ${after.points} pts (avant ${before})`);
   refreshView();
 }
 
 async function removeCapture(id) {
+  const c = state.list.find((x) => x.id === id);
+  if (c) queueDelete(c);
   await deleteCapture(id);
   forgetPhoto(id);
   await reload();
@@ -341,8 +347,11 @@ async function copyData() {
 }
 
 async function clearAll() {
-  if (!confirm('Effacer toute la collection ? Cette action est définitive.')) return;
-  for (const c of state.list) forgetPhoto(c.id);
+  const msg = cloudState().user
+    ? 'Effacer toute la collection, sur ce téléphone ET sur le serveur ? Cette action est définitive.'
+    : 'Effacer toute la collection ? Cette action est définitive.';
+  if (!confirm(msg)) return;
+  for (const c of state.list) { forgetPhoto(c.id); queueDelete(c); }
   await clearCaptures();
   await reload();
   refreshView();
@@ -368,5 +377,10 @@ initIdentify();
 initCards({ getList, onChangeType: changeType, onDelete: removeCapture });
 initMap({ getList });
 bindMapPopupLinks(openDetail);
-initProfile({ getList, onCopy: copyData, onClear: clearAll });
+initProfile({ getList, onCopy: copyData, onClear: clearAll, onAccountChange: async () => { await reload(); refreshView(); } });
 reload();
+
+// Compte et sauvegarde sur le serveur (si configuré dans cloud-config.js).
+initCloud().then(async () => { await reload(); refreshView(); scheduleSync(0); }).catch((e) => console.warn('cloud', e));
+onCloudChange(() => { if (state.view === 'profile') renderProfile({ soft: true }); });
+window.addEventListener('skyhunt:pulled', async () => { await reload(); refreshView(); });

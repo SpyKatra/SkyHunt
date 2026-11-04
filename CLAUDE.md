@@ -28,7 +28,7 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | Écrans : Chasser, Cartes (cartes / album / refusées), Carte (Leaflet + OSM), Profil | `web/ui-*.js` |
 | Compte (code à 6 chiffres par courriel), profil pseudo + pays ISO, synchro des captures, suppression du compte | `web/cloud.js`, `web/cloud-config.js`, `web/ui-profile.js` |
 | Serveur : tables, RLS, mesures figées, photos privées | `supabase/migrations/`, `supabase/README.md` |
-| Prototype natif Expo (caméra + détection, même logique, pas encore les cartes/profil/OCR) | `native/` |
+| **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. Pas encore compilée sur un téléphone | `native/` (voir `native/README.md`) |
 
 ### Règle de points (document de projet)
 
@@ -56,6 +56,9 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   seule l'identification change. Photo envoyée seulement pour les captures valides.
   Toute modification du schéma = **nouvelle** migration dans `supabase/migrations/` (ne pas réécrire l'ancienne).
 - Monétisation sans « pay-to-win » : aucun achat ne doit rapporter de points.
+- Natif : les règles du jeu ne sont **pas recopiées** : `native/src/shared.ts` importe `web/catalog.js`, `game.js`,
+  `registry.js`, `validation.js`, `config.js` et `cloud-config.js` (Metro `watchFolders`). Ces fichiers doivent rester
+  sans DOM. Le registre est embarqué dans l'app et rafraîchi depuis GitHub Pages.
 - Natif : versions **figées** dans `native/` (Expo SDK 56, RN 0.85, vision-camera 4.7.3,
   worklets-core 1.6.3, resize-plugin 3.2.0, fast-tflite 3.0.1, nitro-modules 0.37.1).
   Ne pas mettre à jour une seule de ces dépendances. Dans les frame processors, **pas de sous-worklet**
@@ -102,7 +105,10 @@ lointaines et en contre-jour pour le régler.
    Les captures envoyées sont recompressées (JPEG 80 %, 1920 px) ; l'original reste sur le téléphone.
 2. **Classements** : mondial, national (pays du compte), mensuel, amis ; rareté des lieux calculée
    à partir des captures (remplace P_lieu = 1).
-3. **Passage en natif** : porter les fonctions web dans `native/`, compte Apple Developer, EAS Build.
+3. **Passage en natif** : ← **en cours** (décidé le 2026-11-03 : Expo plutôt que Capacitor, pour le zoom optique,
+   la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
+   il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).
+   Distribution : APK par lien pour Android, TestFlight pour iPhone.
 4. **Anti-triche serveur** : jeton de capture à usage unique, signature, App Attest / Play Integrity,
    pHash anti-doublons, plus tard recoupement ADS-B (licence commerciale à vérifier).
 5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) en plus.

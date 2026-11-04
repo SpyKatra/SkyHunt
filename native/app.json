@@ -2,7 +2,7 @@
   "expo": {
     "name": "SkyHunt",
     "slug": "skyhunt",
-    "version": "0.1.0",
+    "version": "0.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -10,18 +10,31 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.spykatra.skyhunt",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche."
+        "NSLocationWhenInUseUsageDescription": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche.",
+        "NSPhotoLibraryAddUsageDescription": "SkyHunt peut enregistrer tes cartes dans tes photos quand tu les partages."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.spykatra.skyhunt",
-      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"],
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
     },
     "plugins": [
       "expo-dev-client",

@@ -18,13 +18,17 @@ const USER_AGENT = `SkyHunt/${APP_VERSION} (${Platform.OS} ${Platform.Version}; 
 export default function CameraScreen({ active }: { active: boolean }) {
   const { list, saveNew, identify, reveal, toast } = useApp();
   const { hasPermission, requestPermission } = useCameraPermission();
-  // Appareil « virtuel » qui passe tout seul de l'ultra grand-angle au téléobjectif selon le zoom.
-  const device = useCameraDevice('back', {
-    physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
-  });
-  // Photo en 4:3 pleine résolution, comme l'image analysée : le cadre détecté correspond à la photo.
+  // iPhone : appareil « virtuel » qui passe tout seul de l'ultra grand-angle au téléobjectif selon le zoom.
+  // Android : la caméra arrière par défaut (logique) fait déjà ce passage ; le filtre y est risqué car
+  // les caméras physiques ne sont pas décrites et le tri peut retenir une caméra secondaire.
+  const device = useCameraDevice('back', Platform.OS === 'ios'
+    ? { physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'] }
+    : undefined);
+  // Photo 4:3 de 12 Mpx (comme l'image analysée : le cadre détecté correspond à la photo). La pleine
+  // résolution (50-200 Mpx sur Android) alourdit la session caméra et ralentit l'aperçu, sans rien
+  // apporter à la lecture de l'immatriculation (l'envoi est de toute façon réduit à 1920 px).
   const photoOutput = usePhotoOutput({
-    targetResolution: CommonResolutions.HIGHEST_4_3,
+    targetResolution: CommonResolutions.UHD_4_3,
     containerFormat: 'jpeg',
     quality: 0.95,
     qualityPrioritization: 'quality',
@@ -39,9 +43,17 @@ export default function CameraScreen({ active }: { active: boolean }) {
     const head = String(e?.message ?? e).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('at ')).slice(0, 2).join(' — ').slice(0, 300);
     const t = new Date().toLocaleTimeString('fr-CA');
     setCamErrors((list) => [`${t} ${head}`, ...list].slice(0, 3));
-    toast(`Caméra : ${head.slice(0, 120)}`);
+    // « Camera is not active » : réglage (zoom…) envoyé avant le démarrage ; sans conséquence.
+    if (!/not active/i.test(head)) toast(`Caméra : ${head.slice(0, 120)}`);
   }, [toast]);
-  const constraints = useMemo(() => [{ fps: 30 }], []);
+  // État de la session, et relance automatique si la caméra ne démarre pas (écran noir).
+  const [camState, setCamState] = useState('démarrage…');
+  const [camKey, setCamKey] = useState(0);
+  const started = useRef(false);
+  const onStarted = useCallback(() => { started.current = true; setCamState('en marche'); }, []);
+  const onStopped = useCallback(() => { started.current = false; setCamState('arrêtée'); }, []);
+  const onInterrupted = useCallback((r: unknown) => setCamState(`interrompue (${String(r)})`), []);
+  const onResumed = useCallback(() => setCamState('en marche'), []);
   const [busy, setBusy] = useState(false);
   const thresholds = DEFAULT_THRESHOLDS;
 
@@ -111,6 +123,22 @@ export default function CameraScreen({ active }: { active: boolean }) {
   useEffect(() => {
     if (!hasPermission) requestPermission();
   }, [hasPermission, requestPermission]);
+
+  // Chien de garde : si la caméra n'a pas démarré 5 s après l'ouverture, on recrée la session
+  // (3 essais au plus). Évite l'écran noir qui obligeait à fermer l'app.
+  const retries = useRef(0);
+  useEffect(() => {
+    if (!active) { retries.current = 0; return; }
+    if (!hasPermission || device == null) return;
+    started.current = false;
+    const timer = setTimeout(() => {
+      if (started.current || retries.current >= 3) return;
+      retries.current += 1;
+      setCamState(`relance ${retries.current}/3`);
+      setCamKey((k) => k + 1);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [active, hasPermission, device, camKey]);
 
   /* ---------------- Capture ---------------- */
   const takeCapture = useCallback(async () => {
@@ -203,23 +231,30 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const aspect = detection?.aspect ?? 3 / 4;
   const box = detection?.found && detection.confidence >= thresholds.minConfidence ? detection.box : null;
   const boxColor = check.ok ? C.ok : C.warn;
-  const status = modelState === 'loading' ? 'Chargement du modèle…' : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}` : check.message;
+  const status = camState !== 'en marche' ? `Caméra : ${camState}` : modelState === 'loading' ? 'Chargement du modèle…' : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}` : check.message;
 
   return (
     <View style={st.container} {...responder.panHandlers}>
       {/* Zone aux proportions exactes de l'image analysée : le cadre suit l'avion. */}
       <View style={[st.preview, { aspectRatio: aspect }]}>
-        <Camera
-          style={StyleSheet.absoluteFill}
-          device={device}
-          isActive={active}
-          outputs={outputs}
-          zoom={zoom}
-          resizeMode="cover"
-          constraints={constraints}
-          onSessionConfigSelected={(c) => setSessionInfo(`${c.selectedFPS ?? '?'} i/s · ${c.nativePixelFormat}${c.isBinned ? ' · binning' : ''}`)}
-          onError={onCamError}
-        />
+        {/* Montée seulement sur cet onglet : la caméra est entièrement libérée ailleurs. */}
+        {active && (
+          <Camera
+            key={camKey}
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive
+            outputs={outputs}
+            zoom={zoom}
+            resizeMode="cover"
+            onSessionConfigSelected={(c) => setSessionInfo(`${c.selectedFPS ?? '?'} i/s · ${c.nativePixelFormat}${c.isBinned ? ' · binning' : ''}`)}
+            onStarted={onStarted}
+            onStopped={onStopped}
+            onInterruptionStarted={onInterrupted}
+            onInterruptionEnded={onResumed}
+            onError={onCamError}
+          />
+        )}
         {box && (
           <View pointerEvents="none" style={[st.box, { left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, borderColor: boxColor }]}>
             <Text style={[st.boxLabel, { backgroundColor: boxColor }]}>Avion {Math.round((detection?.confidence ?? 0) * 100)} %</Text>
@@ -247,7 +282,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
             Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
             {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : gpuError ? `CPU (GPU : ${gpuError.slice(0, 60)})` : 'CPU'} · zoom ×{factor.toFixed(1)}
           </Text>
-          <Text style={st.debugText}>Caméra : {sessionInfo || 'configuration…'} · {USER_AGENT}</Text>
+          <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · {USER_AGENT}</Text>
           {camErrors.map((m, i) => <Text key={i} style={[st.debugText, { color: C.warn }]}>Erreur {m}</Text>)}
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
         </View>

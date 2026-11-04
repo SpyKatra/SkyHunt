@@ -75,16 +75,20 @@ export function useAircraftDetector() {
         const fh = frame.height;
         const aspect = rot % 2 === 1 ? fh / fw : fw / fh;
 
-        // Plans YUV (lus une seule fois : servent au repli sans GPU et au moiré).
-        const planes = frame.getPlanes();
-        const yPlane = planes[0];
-        const yBuf = new Uint8Array(yPlane.getPixelBuffer());
-        const yRow = yPlane.bytesPerRow;
+        // Plans YUV : seulement s'ils servent (repli sans GPU, ou image où l'on mesure le moiré).
+        const wantMoire = state.count % 2 === 0;
+        let yBuf = new Uint8Array(0);
+        let yRow = 0;
         let uBuf: Uint8Array | null = null;
         let vBuf: Uint8Array | null = null;
         let uvRow = 0;
         let uvStride = 1;
         let uvInterleaved = false;
+        const planes = resizer == null || wantMoire ? frame.getPlanes() : [];
+        if (planes.length > 0) {
+          yBuf = new Uint8Array(planes[0].getPixelBuffer());
+          yRow = planes[0].bytesPerRow;
+        }
         if (planes.length >= 3) {
           uBuf = new Uint8Array(planes[1].getPixelBuffer());
           vBuf = new Uint8Array(planes[2].getPixelBuffer());
@@ -214,7 +218,7 @@ export function useAircraftDetector() {
         const scr = findScreenObject(boxes, classes, scores, count, xmin, ymin, xmax, ymax);
         let moire = -1;
         let moireMs = -1;
-        if (state.count % 2 === 0 && fw >= PATCH && fh >= PATCH) {
+        if (wantMoire && yBuf.length > 0 && fw >= PATCH && fh >= PATCH) {
           const tm = Date.now();
           const c = toRaw((xmin + xmax) / 2, (ymin + ymax) / 2);
           const px = Math.round(Math.min(fw - PATCH, Math.max(0, c[0] * fw - PATCH / 2)));

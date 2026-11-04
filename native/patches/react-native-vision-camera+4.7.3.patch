@@ -1,0 +1,17 @@
+diff --git a/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraDevicesManager.kt b/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraDevicesManager.kt
+--- a/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraDevicesManager.kt
++++ b/node_modules/react-native-vision-camera/android/src/main/java/com/mrousavy/camera/react/CameraDevicesManager.kt
+@@ -68,6 +68,13 @@ class CameraDevicesManager(private val reactContext: ReactApplicationContext) :
+         Log.i(TAG, "Initializing ExtensionsManager...")
+         extensionsManager = ExtensionsManager.getInstanceAsync(reactContext, cameraProvider!!).await(executor)
+         Log.i(TAG, "Successfully initialized!")
++        // SkyHunt : getConstants() a pu etre appele avant la fin de l'initialisation (liste vide) ;
++        // on renvoie la liste a JS maintenant qu'elle est connue.
++        try {
++          sendAvailableDevicesChangedEvent()
++        } catch (error: Throwable) {
++          Log.e(TAG, "Failed to send devices after initialization! Error: ${error.message}", error)
++        }
+       } catch (error: Throwable) {
+         Log.e(TAG, "Failed to initialize ProcessCameraProvider/ExtensionsManager! Error: ${error.message}", error)
+       }

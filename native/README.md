@@ -29,6 +29,10 @@ fast-tflite 3.0.1, nitro-modules 0.37.1 : **ne pas les mettre à jour** (voir CL
 Ajouts 0.5 (versions compatibles SDK 56, installées avec `npx expo install`) : supabase-js 2.118.0,
 async-storage, url-polyfill, expo-image-manipulator, expo-text-extractor 2.0.0, react-native-webview, expo-haptics.
 
+**Correctif vision-camera** (`patches/`, appliqué par `patch-package` au `npm install`) : sur Android, la liste des
+caméras était lue avant que CameraX ait fini de démarrer (« Aucune caméra arrière » au premier lancement) ;
+le module renvoie maintenant la liste à JS dès qu'elle est prête. À refaire ou retirer si vision-camera change.
+
 À savoir : `expo-doctor` signale une fuite de mémoire connue de Hermes dans RN 0.85, corrigée dans
 Expo SDK 57. À surveiller pendant les tests (l'app qui ralentit ou se ferme après un long moment de chasse).
 

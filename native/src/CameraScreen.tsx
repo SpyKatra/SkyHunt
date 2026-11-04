@@ -175,7 +175,13 @@ export default function CameraScreen({ active }: { active: boolean }) {
     );
   }
   if (device == null) {
-    return <View style={st.center}><Text style={st.text}>Aucune caméra arrière trouvée.</Text></View>;
+    // Sur Android, la liste des caméras arrive quelques instants après le lancement.
+    return (
+      <View style={st.center}>
+        <ActivityIndicator color="#fff" />
+        <Text style={st.text}>Ouverture de la caméra…</Text>
+      </View>
+    );
   }
 
   const aspect = detection?.aspect ?? 3 / 4;

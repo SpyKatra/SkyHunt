@@ -79,6 +79,19 @@ npx eas-cli build --profile development --platform android   # ou ios (iPhone en
 npx expo start --dev-client
 ```
 
+### Mises à jour à distance (expo-updates, sans recompiler)
+
+Les APK `preview` écoutent le canal `preview`. Un changement **de code seulement** (TypeScript, `web/*.js`
+partagés, images) s'envoie en 2-3 minutes :
+
+```bash
+npx eas-cli update --channel preview --message "description du changement"
+```
+
+L'app télécharge la mise à jour au lancement et l'applique **au lancement suivant** (la fermer et la rouvrir deux fois).
+`runtimeVersion` suit `version` de `app.json` : tout changement **natif** (nouvelle bibliothèque, version d'Expo,
+plugin, `app.json`) exige d'augmenter `version` **et** de recompiler, sinon une mise à jour pourrait viser un APK incompatible.
+
 ## Tester sur le terrain
 
 Depuis une **zone publique** (stationnement, belvédère) ou une zone où tu as l'autorisation.

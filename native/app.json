@@ -66,6 +66,14 @@
         "projectId": "371e3b65-9fbc-47ef-8829-94f871444f7d"
       }
     },
-    "owner": "spykatra"
+    "owner": "spykatra",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/371e3b65-9fbc-47ef-8829-94f871444f7d",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

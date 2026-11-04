@@ -67,6 +67,9 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   appeler `frame.dispose()`, état entre images dans `globalThis` du worklet, retour à JS par `scheduleOnRN`.
 - Natif : le shader Vulkan du resizer est compilé sur EAS par `native/scripts/compile-resizer-shader.js`
   (`eas-build-post-install`) car AGP 9 ne compile plus `src/main/shaders` ; ne pas retirer ce script.
+- Natif : **ne pas lier la caméra à `AppState`** : sur Android, l'ouverture de la caméra fait passer l'app un instant en
+  « background » → boucle de redémarrages (écran noir, lag, fermetures ; vu au logcat le 2026-11-04). Sur Android, prendre
+  la caméra arrière par défaut (pas de filtre `physicalDevices`). Débogage : adb sans fil (voir `native/README.md`).
 - Natif : changement de code seulement → `npx eas-cli update --channel preview --environment preview` (expo-updates, 2-3 min) au lieu
   d'un APK. Changement natif → augmenter `version` dans `native/app.json` (= runtimeVersion) **et** recompiler.
 - Safari iOS : la caméra exige HTTPS (Pages) ou localhost. Changer `?v=` dans `web/index.html`

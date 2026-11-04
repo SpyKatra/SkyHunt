@@ -79,6 +79,19 @@ npx eas-cli build --profile development --platform android   # ou ios (iPhone en
 npx expo start --dev-client
 ```
 
+### Lire le journal du téléphone (adb sans fil)
+
+`adb` est dans `%LOCALAPPDATA%\Android\platform-tools\`. Sur le téléphone : Options de développement →
+Débogage sans fil → « Associer l'appareil avec un code d'association », puis :
+
+```bash
+adb pair <ip>:<port d'association> <code>
+adb connect <ip>:<port affiché sous « Adresse IP et port »>
+adb logcat -v time | grep -E "ReactNativeJS|HybridCameraSession|AndroidRuntime"
+```
+
+Les messages `[SkyHunt]` (montage de l'écran caméra, démarrage de session, erreurs) apparaissent sous `ReactNativeJS`.
+
 ### Mises à jour à distance (expo-updates, sans recompiler)
 
 Les APK `preview` écoutent le canal `preview`. Un changement **de code seulement** (TypeScript, `web/*.js`

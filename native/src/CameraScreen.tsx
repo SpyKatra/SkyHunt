@@ -31,6 +31,17 @@ export default function CameraScreen({ active }: { active: boolean }) {
   });
 
   const [showDebug, setShowDebug] = useState(false);
+  // Erreurs de la caméra : le message natif contient toute la pile Java, illisible dans un toast.
+  // On n'affiche que la 1re ligne et on garde les 3 dernières pour le diagnostic.
+  const [camErrors, setCamErrors] = useState<string[]>([]);
+  const [sessionInfo, setSessionInfo] = useState("");
+  const onCamError = useCallback((e: Error) => {
+    const head = String(e?.message ?? e).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('at ')).slice(0, 2).join(' — ').slice(0, 300);
+    const t = new Date().toLocaleTimeString('fr-CA');
+    setCamErrors((list) => [`${t} ${head}`, ...list].slice(0, 3));
+    toast(`Caméra : ${head.slice(0, 120)}`);
+  }, [toast]);
+  const constraints = useMemo(() => [{ fps: 30 }], []);
   const [busy, setBusy] = useState(false);
   const thresholds = DEFAULT_THRESHOLDS;
 
@@ -205,7 +216,9 @@ export default function CameraScreen({ active }: { active: boolean }) {
           outputs={outputs}
           zoom={zoom}
           resizeMode="cover"
-          onError={(e) => toast(`Caméra : ${e.message}`)}
+          constraints={constraints}
+          onSessionConfigSelected={(c) => setSessionInfo(`${c.selectedFPS ?? '?'} i/s · ${c.nativePixelFormat}${c.isBinned ? ' · binning' : ''}`)}
+          onError={onCamError}
         />
         {box && (
           <View pointerEvents="none" style={[st.box, { left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, borderColor: boxColor }]}>
@@ -234,6 +247,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
             Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
             {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : gpuError ? `CPU (GPU : ${gpuError.slice(0, 60)})` : 'CPU'} · zoom ×{factor.toFixed(1)}
           </Text>
+          <Text style={st.debugText}>Caméra : {sessionInfo || 'configuration…'} · {USER_AGENT}</Text>
+          {camErrors.map((m, i) => <Text key={i} style={[st.debugText, { color: C.warn }]}>Erreur {m}</Text>)}
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
         </View>
       )}

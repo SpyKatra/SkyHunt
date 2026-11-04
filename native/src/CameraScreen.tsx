@@ -41,11 +41,13 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const [sessionInfo, setSessionInfo] = useState("");
   const onCamError = useCallback((e: Error) => {
     const head = String(e?.message ?? e).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('at ')).slice(0, 2).join(' — ').slice(0, 300);
+    // Sans conséquence, ignorés : « Camera is not active » (réglage envoyé avant le démarrage) et
+    // « Cancelled due to another zoom value » (chaque pas du pincement annule le précédent, ~60/s).
+    if (/not active|another zoom/i.test(head)) return;
     console.log(`[SkyHunt] erreur caméra : ${head}`);
     const t = new Date().toLocaleTimeString('fr-CA');
     setCamErrors((list) => [`${t} ${head}`, ...list].slice(0, 3));
-    // « Camera is not active » : réglage (zoom…) envoyé avant le démarrage ; sans conséquence.
-    if (!/not active/i.test(head)) toast(`Caméra : ${head.slice(0, 120)}`);
+    toast(`Caméra : ${head.slice(0, 120)}`);
   }, [toast]);
   // État de la session, et relance automatique si la caméra ne démarre pas (écran noir).
   const [camState, setCamState] = useState('démarrage…');

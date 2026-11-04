@@ -85,7 +85,7 @@ Les APK `preview` écoutent le canal `preview`. Un changement **de code seulemen
 partagés, images) s'envoie en 2-3 minutes :
 
 ```bash
-npx eas-cli update --channel preview --message "description du changement"
+npx eas-cli update --channel preview --environment preview --message "description du changement"
 ```
 
 L'app télécharge la mise à jour au lancement et l'applique **au lancement suivant** (la fermer et la rouvrir deux fois).

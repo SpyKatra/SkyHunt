@@ -67,7 +67,7 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   appeler `frame.dispose()`, état entre images dans `globalThis` du worklet, retour à JS par `scheduleOnRN`.
 - Natif : le shader Vulkan du resizer est compilé sur EAS par `native/scripts/compile-resizer-shader.js`
   (`eas-build-post-install`) car AGP 9 ne compile plus `src/main/shaders` ; ne pas retirer ce script.
-- Natif : changement de code seulement → `npx eas-cli update --channel preview` (expo-updates, 2-3 min) au lieu
+- Natif : changement de code seulement → `npx eas-cli update --channel preview --environment preview` (expo-updates, 2-3 min) au lieu
   d'un APK. Changement natif → augmenter `version` dans `native/app.json` (= runtimeVersion) **et** recompiler.
 - Safari iOS : la caméra exige HTTPS (Pages) ou localhost. Changer `?v=` dans `web/index.html`
   quand `app.js` ou `style.css` change, sinon Safari garde l'ancienne version en cache.

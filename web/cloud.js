@@ -242,7 +242,8 @@ async function pushCaptures(uid) {
     // On n'envoie la photo que des captures valides (les refusées ne gardent que les mesures).
     if (!photoPath && c.valid && c.photo) {
       const path = `${uid}/${c.id}.jpg`;
-      const { error } = await sb.storage.from(BUCKET).upload(path, c.photo, { contentType: 'image/jpeg', upsert: false });
+      const body = await compressForUpload(c.photo);
+      const { error } = await sb.storage.from(BUCKET).upload(path, body, { contentType: 'image/jpeg', upsert: false });
       if (error && !isAlreadyExists(error)) throw new Error(`Photo : ${frenchError(error)}`);
       photoPath = path;
     }
@@ -294,6 +295,29 @@ async function pullCaptures(uid) {
     if (c.ownerId === uid && c.syncState === 'synced' && !remote.has(c.id)) { await deleteCapture(c.id); n++; }
   }
   return n;
+}
+
+/**
+ * Copie allégée pour le serveur (~1 Mo → ~450 Ko) : JPEG 80 %, au plus 1920 px de large/haut.
+ * La photo d'origine reste intacte sur le téléphone. En cas de souci, on envoie l'original.
+ */
+const UPLOAD_MAX_SIDE = 1920;
+const UPLOAD_QUALITY = 0.8;
+export async function compressForUpload(blob) {
+  try {
+    const bmp = await createImageBitmap(blob);
+    const k = Math.min(1, UPLOAD_MAX_SIDE / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * k);
+    canvas.height = Math.round(bmp.height * k);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    if (bmp.close) bmp.close();
+    const out = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', UPLOAD_QUALITY));
+    return out && out.size < blob.size ? out : blob;
+  } catch (e) {
+    console.warn('compression', e);
+    return blob;
+  }
 }
 
 async function downloadPhoto(path) {

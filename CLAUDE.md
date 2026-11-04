@@ -7,13 +7,14 @@ mondial et national (pays choisi à la création du compte).
 - Porteur du projet : Spy (Québec, région de YQB). **Langue de travail : français** (interface, messages de commit, docs).
 - Dossier de projet complet (concept, points, anti-triche, légal, feuille de route) :
   https://claude.ai/artifact/6EA6S2uTtjJNcucsHnRqbv (document privé de Spy).
-- Version web en ligne : https://spykatra.github.io/SkyHunt/ (publiée par GitHub Actions à chaque push dans `web/`).
+- Version web en ligne : https://spykatra.github.io/SkyHunt/ (publiée par GitHub Actions à chaque push dans `web/` ;
+  réglage Pages → Source = « GitHub Actions », sinon le README est publié à la place).
 
 ## État actuel : prototype 0.4 (novembre 2026)
 
 Tout tourne **sur le téléphone** (IndexedDB, hors ligne possible). Avec un compte, les captures sont
-envoyées sur Supabase et récupérées sur les autres appareils (étape 1 en cours : code prêt, projet en ligne à créer
-par Spy, voir `supabase/README.md`).
+envoyées sur Supabase et récupérées sur les autres appareils. Projet en ligne `jujomunxljjjrtetqvoe` (ca-central-1),
+migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/README.md`).
 
 | Fonction | Où |
 | --- | --- |
@@ -96,8 +97,9 @@ lointaines et en contre-jour pour le régler.
 ## Feuille de route (vers une vraie app)
 
 1. **Serveur et comptes** : Supabase (PostgreSQL + PostGIS, Auth avec Apple / Google / courriel, Storage).
-   Envoyer les captures, garder un cache local. ← **en cours** : code et tests faits ; reste à créer le projet
-   en ligne (région ca-central-1), remplir `web/cloud-config.js`, puis un SMTP avant la bêta.
+   Envoyer les captures, garder un cache local. ← **fait**, sauf le SMTP perso : sans lui, Supabase n'envoie
+   qu'un **lien** (pas le code à 6 chiffres), seulement à Spy, ~2 courriels/h ; le lien ne connecte que dans Safari,
+   pas dans l'app de l'écran d'accueil. À brancher (Resend ou Gmail) puis mettre `supabase/templates/code.html`.
 2. **Classements** : mondial, national (pays du compte), mensuel, amis ; rareté des lieux calculée
    à partir des captures (remplace P_lieu = 1).
 3. **Passage en natif** : porter les fonctions web dans `native/`, compte Apple Developer, EAS Build.

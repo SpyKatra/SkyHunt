@@ -24,6 +24,9 @@ export type Detection = {
   /** Natif : part de la détection (redimensionnement + modèle) et du moiré (ms ; -1 = non mesuré cette fois). */
   detectMs?: number;
   moireMs?: number;
+  /** Diagnostic : image reçue (« 1920×1440 right ») et cadence réelle de la caméra. */
+  frameInfo?: string;
+  cameraFps?: number;
 };
 
 export type Box = { x: number; y: number; w: number; h: number };

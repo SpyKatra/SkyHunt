@@ -41,6 +41,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const [sessionInfo, setSessionInfo] = useState("");
   const onCamError = useCallback((e: Error) => {
     const head = String(e?.message ?? e).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('at ')).slice(0, 2).join(' — ').slice(0, 300);
+    console.log(`[SkyHunt] erreur caméra : ${head}`);
     const t = new Date().toLocaleTimeString('fr-CA');
     setCamErrors((list) => [`${t} ${head}`, ...list].slice(0, 3));
     // « Camera is not active » : réglage (zoom…) envoyé avant le démarrage ; sans conséquence.
@@ -50,8 +51,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const [camState, setCamState] = useState('démarrage…');
   const [camKey, setCamKey] = useState(0);
   const started = useRef(false);
-  const onStarted = useCallback(() => { started.current = true; setCamState('en marche'); }, []);
-  const onStopped = useCallback(() => { started.current = false; setCamState('arrêtée'); }, []);
+  const onStarted = useCallback(() => { console.log('[SkyHunt] session démarrée'); started.current = true; setCamState('en marche'); }, []);
+  const onStopped = useCallback(() => { console.log('[SkyHunt] session arrêtée'); started.current = false; setCamState('arrêtée'); }, []);
   const onInterrupted = useCallback((r: unknown) => setCamState(`interrompue (${String(r)})`), []);
   const onResumed = useCallback(() => setCamState('en marche'), []);
   const [busy, setBusy] = useState(false);
@@ -128,7 +129,14 @@ export default function CameraScreen({ active }: { active: boolean }) {
   // (3 essais au plus). Évite l'écran noir qui obligeait à fermer l'app.
   const retries = useRef(0);
   useEffect(() => {
-    if (!active) { retries.current = 0; return; }
+    console.log(`[SkyHunt] caméra : active=${active} perm=${hasPermission} device=${device?.id ?? 'null'} key=${camKey}`);
+  }, [active, hasPermission, device, camKey]);
+  useEffect(() => {
+    console.log('[SkyHunt] CameraScreen monté');
+    return () => console.log('[SkyHunt] CameraScreen démonté');
+  }, []);
+  useEffect(() => {
+    if (!active) { retries.current = 0; started.current = false; setCamState('démarrage…'); return; }
     if (!hasPermission || device == null) return;
     started.current = false;
     const timer = setTimeout(() => {
@@ -245,7 +253,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
             device={device}
             isActive
             outputs={outputs}
-            zoom={zoom}
+            zoom={camState === 'en marche' ? zoom : undefined}
             resizeMode="cover"
             onSessionConfigSelected={(c) => setSessionInfo(`${c.selectedFPS ?? '?'} i/s · ${c.nativePixelFormat}${c.isBinned ? ' · binning' : ''}`)}
             onStarted={onStarted}
@@ -282,7 +290,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
             Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
             {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : gpuError ? `CPU (GPU : ${gpuError.slice(0, 60)})` : 'CPU'} · zoom ×{factor.toFixed(1)}
           </Text>
-          <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · {USER_AGENT}</Text>
+          <Text style={st.debugText}>Caméra : {camState} · {detection.cameraFps ?? '?'} i/s reçues · image {detection.frameInfo ?? '?'} · {sessionInfo || 'configuration…'} · {USER_AGENT}</Text>
           {camErrors.map((m, i) => <Text key={i} style={[st.debugText, { color: C.warn }]}>Erreur {m}</Text>)}
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
         </View>

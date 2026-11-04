@@ -19,7 +19,7 @@ import { analyzePatch, findScreenObject, PATCH, pushMedian } from './shared';
 import type { Detection } from './types';
 
 /** État gardé d'une image à l'autre dans le runtime du worklet (les captures de closure sont copiées). */
-type WorkletState = { last: number; count: number };
+type WorkletState = { last: number; count: number; frames: number; fpsT0: number; fps: number };
 
 export function useAircraftDetector() {
   const model = useModel();
@@ -62,8 +62,15 @@ export function useAircraftDetector() {
       try {
         if (!ready || tflite == null) return;
         const g = globalThis as unknown as { __sky?: WorkletState };
-        const state = g.__sky ?? (g.__sky = { last: 0, count: 0 });
+        const state = g.__sky ?? (g.__sky = { last: 0, count: 0, frames: 0, fpsT0: Date.now(), fps: 0 });
         const t0 = Date.now();
+        // Cadence réelle des images reçues (toutes, pas seulement celles analysées).
+        state.frames += 1;
+        if (t0 - state.fpsT0 >= 1000) {
+          state.fps = Math.round((state.frames * 1000) / (t0 - state.fpsT0));
+          state.frames = 0;
+          state.fpsT0 = t0;
+        }
         if (t0 - state.last < intervalMs) return;
         state.last = t0;
         state.count += 1;
@@ -74,6 +81,7 @@ export function useAircraftDetector() {
         const fw = frame.width;
         const fh = frame.height;
         const aspect = rot % 2 === 1 ? fh / fw : fw / fh;
+        const frameInfo = `${fw}×${fh} ${o}`;
 
         // Plans YUV : seulement s'ils servent (repli sans GPU, ou image où l'on mesure le moiré).
         const wantMoire = state.count % 2 === 0;
@@ -172,7 +180,7 @@ export function useAircraftDetector() {
           scheduleOnRN(report, {
             found: false, confidence: 0, box: null, sizeRatio: 0,
             sharpness: 0, brightness: 0, moire: 0, screenObject: 0, screenClass: -1,
-            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1,
+            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1, frameInfo, cameraFps: state.fps,
           });
           return;
         }
@@ -245,6 +253,8 @@ export function useAircraftDetector() {
           inferenceMs: Date.now() - t0,
           detectMs,
           moireMs,
+          frameInfo,
+          cameraFps: state.fps,
         });
       } finally {
         frame.dispose();

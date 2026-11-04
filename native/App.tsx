@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import CameraScreen from './src/CameraScreen';
 import CardsScreen from './src/CardsScreen';
@@ -36,13 +36,8 @@ function Main() {
   const { list, toastText } = useApp();
   const [tab, setTab] = useState<Tab>('camera');
   const [mapOpened, setMapOpened] = useState(false);
-  const [foreground, setForeground] = useState(AppState.currentState === 'active');
 
   useEffect(() => { showLastCrash(); }, []);
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (s) => setForeground(s === 'active'));
-    return () => sub.remove();
-  }, []);
   useEffect(() => { if (tab === 'map') setMapOpened(true); }, [tab]);
 
   const cards = list.filter((c) => c.valid).length;
@@ -51,9 +46,12 @@ function Main() {
     <SafeAreaView style={st.root} edges={['top', 'bottom']}>
       <StatusBar style="light" />
       <View style={{ flex: 1 }}>
-        {/* La caméra reste montée (modèle chargé) mais ne tourne que sur son onglet, app au premier plan. */}
+        {/* La caméra reste montée (modèle chargé) mais ne tourne que sur son onglet.
+            Pas d'AppState : sur Android, l'ouverture de la caméra fait passer l'app un instant en
+            « background » ; arrêter la caméra la remettait en « active », d'où une boucle de
+            redémarrages (écran noir, lag, fermetures). VisionCamera gère seule l'arrière-plan. */}
         <View style={[StyleSheet.absoluteFill, tab !== 'camera' && st.hidden]} pointerEvents={tab === 'camera' ? 'auto' : 'none'}>
-          <CameraScreen active={tab === 'camera' && foreground} />
+          <CameraScreen active={tab === 'camera'} />
         </View>
         {tab === 'cards' && <View style={StyleSheet.absoluteFill}><CardsScreen /></View>}
         {/* La carte reste montée une fois ouverte (pas de rechargement des tuiles). */}

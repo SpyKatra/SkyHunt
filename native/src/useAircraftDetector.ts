@@ -29,12 +29,19 @@ export function useAircraftDetector(rotationOffset: number) {
   const [detection, setDetection] = useState<Detection | null>(null);
   // Côté JS : médiane du moiré sur les 3 dernières analyses (un pic dû au bruit ne suffit pas).
   const moireHist = useRef<number[]>([]);
+  // Moiré mesuré une analyse sur deux (moire < 0 = pas mesuré cette fois : on garde la médiane).
+  const lastMoire = useRef(0);
+  const lastMoireMs = useRef(-1);
   const report = useMemo(() => Worklets.createRunOnJS((d: Detection) => {
-    if (!d.found) moireHist.current = [];
-    else d.moire = pushMedian(moireHist.current, d.moire);
+    if (!d.found) { moireHist.current = []; lastMoire.current = 0; }
+    else if (d.moire >= 0) lastMoire.current = d.moire = pushMedian(moireHist.current, d.moire);
+    else d.moire = lastMoire.current;
+    if (d.moireMs != null && d.moireMs >= 0) lastMoireMs.current = d.moireMs;
+    else d.moireMs = lastMoireMs.current;
     setDetection(d);
   }), []);
   const lastRun = useSharedValue(0);
+  const runCount = useSharedValue(0);
   const intervalMs = 1000 / DETECTION_FPS;
 
   const frameProcessor = useFrameProcessor(
@@ -75,6 +82,7 @@ export function useAircraftDetector(rotationOffset: number) {
         const classes = new Float32Array(out[1]);
         const scores = new Float32Array(out[2]);
         const count = Math.min(Math.round(new Float32Array(out[3])[0] ?? 0), scores.length);
+        const detectMs = Date.now() - t0;
 
         let best = -1;
         let bestScore = 0;
@@ -89,7 +97,7 @@ export function useAircraftDetector(rotationOffset: number) {
           report({
             found: false, confidence: 0, box: null, sizeRatio: 0,
             sharpness: 0, brightness: 0, moire: 0, screenObject: 0, screenClass: -1,
-            aspect, inferenceMs: Date.now() - t0,
+            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1,
           });
           return;
         }
@@ -150,8 +158,13 @@ export function useAircraftDetector(rotationOffset: number) {
         if (rotIndex === 1) { ax = uy; ay = 1 - ux; }
         else if (rotIndex === 2) { ax = 1 - ux; ay = 1 - uy; }
         else if (rotIndex === 3) { ax = 1 - uy; ay = ux; }
-        let moire = 0;
-        if (frame.width >= PATCH && frame.height >= PATCH) {
+        // Le moiré (FFT en JavaScript) coûte cher et bloque la caméra pendant le calcul :
+        // une analyse sur deux seulement.
+        runCount.value = runCount.value + 1;
+        let moire = -1;
+        let moireMs = -1;
+        if (runCount.value % 2 === 0 && frame.width >= PATCH && frame.height >= PATCH) {
+          const tm = Date.now();
           const px = Math.round(Math.min(frame.width - PATCH, Math.max(0, ax * frame.width - PATCH / 2)));
           const py = Math.round(Math.min(frame.height - PATCH, Math.max(0, ay * frame.height - PATCH / 2)));
           const patch = resize(frame, {
@@ -161,6 +174,7 @@ export function useAircraftDetector(rotationOffset: number) {
             dataType: 'uint8',
           });
           moire = analyzePatch(patch, PATCH).moire;
+          moireMs = Date.now() - tm;
         }
 
         report({
@@ -175,10 +189,12 @@ export function useAircraftDetector(rotationOffset: number) {
           screenClass: scr.cls,
           aspect,
           inferenceMs: Date.now() - t0,
+          detectMs,
+          moireMs,
         });
       }
     },
-    [boxed, rotationOffset, resize, report, lastRun, intervalMs],
+    [boxed, rotationOffset, resize, report, lastRun, runCount, intervalMs],
   );
 
   return {

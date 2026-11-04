@@ -28,7 +28,10 @@ export default function CameraScreen({ active }: { active: boolean }) {
     { photoAspectRatio: 4 / 3 },
     { videoResolution: { width: 1920, height: 1440 } },
     { photoResolution: 'max' },
+    { fps: 30 },
   ]);
+  // Aperçu fluide : 30 images/s si le format le permet (certains Android choisissent sinon 15 ou moins).
+  const fps = format != null ? Math.min(30, format.maxFps) : undefined;
   const camera = useRef<Camera>(null);
 
   const [rotationOffset, setRotationOffset] = useState(0);
@@ -198,6 +201,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
           style={StyleSheet.absoluteFill}
           device={device}
           format={format}
+          fps={fps}
           isActive={active}
           photo
           zoom={zoom}
@@ -229,7 +233,10 @@ export default function CameraScreen({ active }: { active: boolean }) {
           <Text style={st.debugText}>Luminosité : {Math.round(detection.brightness)}</Text>
           <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire})</Text>
           <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
-          <Text style={st.debugText}>Analyse : {Math.round(detection.inferenceMs)} ms · zoom ×{factor.toFixed(1)}</Text>
+          <Text style={st.debugText}>
+            Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
+            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {fps ?? '?'} i/s · zoom ×{factor.toFixed(1)}
+          </Text>
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
           <Pressable onPress={() => setRotationOffset((r) => (r + 1) % 4)} style={st.smallBtn}>
             <Text style={st.smallBtnText}>↻ Orientation ({rotationOffset * 90}°)</Text>

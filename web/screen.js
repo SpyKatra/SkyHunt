@@ -78,27 +78,54 @@ function fft(re, im, off, stride, n) {
   }
 }
 
-/** Plus fort pic isolé (en log10 de puissance) du spectre d'un canal n×n. */
-function spectralPeak(ch, n) {
+/**
+ * Spectres (log10 de la puissance, indexés [v][u]) de deux canaux réels n×n, fenêtrés (Hann),
+ * calculés avec UNE seule FFT complexe (a + i·b) : deux fois moins de calcul.
+ * X_a(k) = (Z(k) + conj Z(−k)) / 2 ; X_b(k) = (Z(k) − conj Z(−k)) / 2i.
+ */
+function logSpectra(a, b, n) {
   'worklet';
   const N = n * n;
-  let mean = 0;
-  for (let i = 0; i < N; i++) mean += ch[i];
-  mean /= N;
+  let ma = 0;
+  let mb = 0;
+  for (let i = 0; i < N; i++) { ma += a[i]; mb += b[i]; }
+  ma /= N;
+  mb /= N;
   const re = new Float64Array(N);
   const im = new Float64Array(N);
   for (let y = 0; y < n; y++) {
     const wy = 0.5 - 0.5 * Math.cos((2 * Math.PI * y) / (n - 1));
     for (let x = 0; x < n; x++) {
-      const wx = 0.5 - 0.5 * Math.cos((2 * Math.PI * x) / (n - 1));
-      re[y * n + x] = (ch[y * n + x] - mean) * wx * wy;
+      const w = (0.5 - 0.5 * Math.cos((2 * Math.PI * x) / (n - 1))) * wy;
+      const i = y * n + x;
+      re[i] = (a[i] - ma) * w;
+      im[i] = (b[i] - mb) * w;
     }
   }
   for (let y = 0; y < n; y++) fft(re, im, y * n, 1, n);
   for (let x = 0; x < n; x++) fft(re, im, x, n, n);
-  const L = re; // réutilisé : log10 de la puissance, indexé [v][u]
-  for (let i = 0; i < N; i++) L[i] = Math.log10(re[i] * re[i] + im[i] * im[i] + 1e-6);
-  const at = (u, v) => L[(((v % n) + n) % n) * n + (((u % n) + n) % n)];
+  const La = new Float64Array(N);
+  const Lb = new Float64Array(N);
+  for (let v = 0; v < n; v++) {
+    const v2 = (n - v) % n;
+    for (let u = 0; u < n; u++) {
+      const i = v * n + u;
+      const j = v2 * n + ((n - u) % n);
+      const ar = re[i] + re[j];
+      const ai = im[i] - im[j];
+      const br = im[i] + im[j];
+      const bi = re[j] - re[i];
+      La[i] = Math.log10(0.25 * (ar * ar + ai * ai) + 1e-6);
+      Lb[i] = Math.log10(0.25 * (br * br + bi * bi) + 1e-6);
+    }
+  }
+  return [La, Lb];
+}
+
+/** Plus fort pic isolé d'un spectre n×n (log10 de puissance, indexé [v][u]). */
+function spectralPeak(L, n) {
+  'worklet';
+  const at =(u, v) => L[(((v % n) + n) % n) * n + (((u % n) + n) % n)];
 
   // Moyenne (en log) de chaque anneau de fréquence : le « fond » naturel en 1/f.
   const half = n >> 1;
@@ -182,7 +209,8 @@ export function analyzePatch(rgb, n) {
     Cb[i] = rgb[k + 2] - y;
     Cr[i] = rgb[k] - y;
   }
-  return { moire: 10 * Math.max(spectralPeak(Cb, n), spectralPeak(Cr, n)) };
+  const [Lb, Lr] = logSpectra(Cb, Cr, n);
+  return { moire: 10 * Math.max(spectralPeak(Lb, n), spectralPeak(Lr, n)) };
 }
 
 /**

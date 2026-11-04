@@ -19,8 +19,11 @@ export type Detection = {
   screenClass: number;
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
   aspect: number;
-  /** Durée d'inférence (ms). */
+  /** Durée totale de l'analyse (ms). */
   inferenceMs: number;
+  /** Natif : part de la détection (redimensionnement + modèle) et du moiré (ms ; -1 = non mesuré cette fois). */
+  detectMs?: number;
+  moireMs?: number;
 };
 
 export type Box = { x: number; y: number; w: number; h: number };

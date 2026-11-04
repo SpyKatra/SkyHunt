@@ -40,15 +40,6 @@
     "plugins": [
       "expo-dev-client",
       [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "SkyHunt utilise la caméra pour photographier les avions de ta collection.",
-          "enableFrameProcessors": true,
-          "enableMicrophonePermission": false,
-          "enableLocation": false
-        }
-      ],
-      [
         "expo-location",
         {
           "locationWhenInUsePermission": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche."

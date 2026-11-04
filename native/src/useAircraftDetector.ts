@@ -1,82 +1,152 @@
+// Détection d'avion en direct (vision-camera 5 + react-native-worklets).
+//
+// Chaîne par image analysée (~5 par seconde) :
+//  1. Le Resizer (GPU : Vulkan sur Android, Metal sur iPhone) remet l'image à l'endroit et la
+//     réduit en 320×320 RGB pour le modèle.
+//  2. EfficientDet-Lite0 (fast-tflite, objet Nitro utilisable directement dans le worklet).
+//  3. Netteté / luminosité sur la zone de l'avion (image 320×320).
+//  4. Anti-écran : carré de 128 px à PLEINE résolution lu dans les plans YUV de l'image,
+//     converti en RGB, puis web/screen.js (une analyse sur deux).
 import { Asset } from 'expo-asset';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tflite';
-import { NitroModules } from 'react-native-nitro-modules';
-import { useFrameProcessor } from 'react-native-vision-camera';
-import { useSharedValue, Worklets } from 'react-native-worklets-core';
-import { useResizePlugin } from 'vision-camera-resize-plugin';
+import { CommonResolutions, useFrameOutput, type Frame } from 'react-native-vision-camera';
+import { isResizerAvailable, useResizer } from 'react-native-vision-camera-resizer';
+import { scheduleOnRN } from 'react-native-worklets';
 import { AIRPLANE_CLASS, DETECTION_FPS, MODEL_INPUT } from './config';
 import { analyzePatch, findScreenObject, PATCH, pushMedian } from './shared';
 import type { Detection } from './types';
 
-type Rotation = '0deg' | '90deg' | '180deg' | '270deg';
-const ROTATIONS: Rotation[] = ['0deg', '90deg', '180deg', '270deg'];
+/** État gardé d'une image à l'autre dans le runtime du worklet (les captures de closure sont copiées). */
+type WorkletState = { last: number; count: number };
 
-/**
- * Charge le modèle EfficientDet-Lite0 (COCO) et renvoie un frameProcessor
- * qui cherche le meilleur avion dans l'image, ~5 fois par seconde.
- *
- * `rotationOffset` (0–3) permet de corriger l'orientation si le cadre
- * dessiné ne suit pas l'avion sur ton téléphone (bouton « ↻ » du diagnostic).
- */
-export function useAircraftDetector(rotationOffset: number) {
+export function useAircraftDetector() {
   const model = useModel();
-  const loaded = model.state === 'loaded' ? model.model : undefined;
-  const boxed = useMemo(() => (loaded != null ? NitroModules.box(loaded) : undefined), [loaded]);
+  const tflite = model.state === 'loaded' ? model.model : undefined;
 
-  const { resize } = useResizePlugin();
+  const gpu = useMemo(() => { try { return isResizerAvailable(); } catch { return false; } }, []);
+  const resizerState = useResizer({
+    width: MODEL_INPUT,
+    height: MODEL_INPUT,
+    channelOrder: 'rgb',
+    dataType: 'uint8',
+    scaleMode: 'stretch',
+    pixelLayout: 'interleaved',
+  });
+  const resizer = gpu ? resizerState.resizer : undefined;
+
   const [detection, setDetection] = useState<Detection | null>(null);
-  // Côté JS : médiane du moiré sur les 3 dernières analyses (un pic dû au bruit ne suffit pas).
+  // Côté JS : médiane du moiré sur les 3 dernières mesures (un pic dû au bruit ne suffit pas).
   const moireHist = useRef<number[]>([]);
-  // Moiré mesuré une analyse sur deux (moire < 0 = pas mesuré cette fois : on garde la médiane).
   const lastMoire = useRef(0);
   const lastMoireMs = useRef(-1);
-  const report = useMemo(() => Worklets.createRunOnJS((d: Detection) => {
+  const report = useMemo(() => (d: Detection) => {
     if (!d.found) { moireHist.current = []; lastMoire.current = 0; }
     else if (d.moire >= 0) lastMoire.current = d.moire = pushMedian(moireHist.current, d.moire);
     else d.moire = lastMoire.current;
     if (d.moireMs != null && d.moireMs >= 0) lastMoireMs.current = d.moireMs;
     else d.moireMs = lastMoireMs.current;
     setDetection(d);
-  }), []);
-  const lastRun = useSharedValue(0);
-  const runCount = useSharedValue(0);
+  }, []);
+
   const intervalMs = 1000 / DETECTION_FPS;
+  const ready = tflite != null && (resizer != null || !gpu);
 
-  const frameProcessor = useFrameProcessor(
-    (frame) => {
+  // Mémorisé : sinon le worklet (et le modèle qu'il capture) serait renvoyé au fil de la caméra
+  // à chaque nouveau rendu, 5 fois par seconde.
+  const onFrame = useCallback((frame: Frame) => {
       'worklet';
-      if (boxed == null) return;
+      try {
+        if (!ready || tflite == null) return;
+        const g = globalThis as unknown as { __sky?: WorkletState };
+        const state = g.__sky ?? (g.__sky = { last: 0, count: 0 });
+        const t0 = Date.now();
+        if (t0 - state.last < intervalMs) return;
+        state.last = t0;
+        state.count += 1;
 
-      // Limite l'analyse à ~5 images/s. Pas de sous-worklet : le plugin Babel
-      // détacherait les méthodes de l'objet natif (unbox / runSync).
-      const t0 = Date.now();
-      if (t0 - lastRun.value < intervalMs) return;
-      lastRun.value = t0;
-      {
-        const tflite = boxed.unbox();
+        // Orientation : l'image brute du capteur est tournée ; le Resizer la remet à l'endroit.
+        const o = frame.orientation;
+        const rot = o === 'right' ? 1 : o === 'down' ? 2 : o === 'left' ? 3 : 0;
+        const fw = frame.width;
+        const fh = frame.height;
+        const aspect = rot % 2 === 1 ? fh / fw : fw / fh;
 
-        // 1. Orientation : on remet l'image à l'endroit pour le modèle.
-        let base = 0;
-        if (frame.orientation === 'landscape-left') base = 1;
-        else if (frame.orientation === 'portrait-upside-down') base = 2;
-        else if (frame.orientation === 'landscape-right') base = 3;
-        const rotIndex = (base + rotationOffset) % 4;
-        const rotation = ROTATIONS[rotIndex];
-        const swapped = rotIndex % 2 === 1;
-        const aspect = swapped ? frame.height / frame.width : frame.width / frame.height;
+        // Plans YUV (lus une seule fois : servent au repli sans GPU et au moiré).
+        const planes = frame.getPlanes();
+        const yPlane = planes[0];
+        const yBuf = new Uint8Array(yPlane.getPixelBuffer());
+        const yRow = yPlane.bytesPerRow;
+        let uBuf: Uint8Array | null = null;
+        let vBuf: Uint8Array | null = null;
+        let uvRow = 0;
+        let uvStride = 1;
+        let uvInterleaved = false;
+        if (planes.length >= 3) {
+          uBuf = new Uint8Array(planes[1].getPixelBuffer());
+          vBuf = new Uint8Array(planes[2].getPixelBuffer());
+          uvRow = planes[1].bytesPerRow;
+          uvStride = Math.max(1, Math.round(planes[1].bytesPerRow / planes[1].width));
+        } else if (planes.length === 2) {
+          // iPhone : plan CbCr entrelacé.
+          uBuf = new Uint8Array(planes[1].getPixelBuffer());
+          vBuf = uBuf;
+          uvRow = planes[1].bytesPerRow;
+          uvStride = 2;
+          uvInterleaved = true;
+        }
+        // Pixel (x, y) de l'image BRUTE → R, G, B (BT.601 pleine échelle).
+        const rgbAt = (x: number, y: number, out: Uint8Array, k: number) => {
+          'worklet';
+          const Y = yBuf[y * yRow + x];
+          let U = 128;
+          let V = 128;
+          if (uBuf != null && vBuf != null) {
+            const i = (y >> 1) * uvRow + (x >> 1) * uvStride;
+            U = uBuf[i];
+            V = uvInterleaved ? vBuf[i + 1] : vBuf[i];
+          }
+          const r = Y + 1.402 * (V - 128);
+          const gg = Y - 0.344136 * (U - 128) - 0.714136 * (V - 128);
+          const b = Y + 1.772 * (U - 128);
+          out[k] = r < 0 ? 0 : r > 255 ? 255 : r;
+          out[k + 1] = gg < 0 ? 0 : gg > 255 ? 255 : gg;
+          out[k + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+        };
+        // Coordonnée normalisée À L'ENDROIT → image brute (même convention que le Resizer).
+        const toRaw = (ux: number, uy: number) => {
+          'worklet';
+          if (rot === 1) return [uy, 1 - ux];
+          if (rot === 2) return [1 - ux, 1 - uy];
+          if (rot === 3) return [1 - uy, ux];
+          return [ux, uy];
+        };
 
-        // 2. Redimensionnement 320×320 RGB.
-        const rgb = resize(frame, {
-          scale: { width: MODEL_INPUT, height: MODEL_INPUT },
-          rotation,
-          pixelFormat: 'rgb',
-          dataType: 'uint8',
-        });
-        const input = rgb.buffer.slice(rgb.byteOffset, rgb.byteOffset + rgb.byteLength) as ArrayBuffer;
+        // 1. Image 320×320 à l'endroit pour le modèle.
+        const S = MODEL_INPUT;
+        let rgb: Uint8Array;
+        let input: ArrayBuffer;
+        if (resizer != null) {
+          const resized = resizer.resize(frame);
+          // Copie : le tampon GPU n'est plus valable après dispose().
+          input = resized.getPixelBuffer().slice(0);
+          resized.dispose();
+          rgb = new Uint8Array(input);
+        } else {
+          rgb = new Uint8Array(S * S * 3);
+          for (let y = 0; y < S; y++) {
+            for (let x = 0; x < S; x++) {
+              const p = toRaw((x + 0.5) / S, (y + 0.5) / S);
+              const rx = Math.min(fw - 1, Math.floor(p[0] * fw));
+              const ry = Math.min(fh - 1, Math.floor(p[1] * fh));
+              rgbAt(rx, ry, rgb, (y * S + x) * 3);
+            }
+          }
+          input = rgb.buffer as ArrayBuffer;
+        }
 
-        // 3. Inférence. Sorties : boîtes [25×4], classes [25], scores [25], nombre [1].
+        // 2. Inférence. Sorties : boîtes [25×4], classes [25], scores [25], nombre [1].
         const out = tflite.runSync([input]);
         const boxes = new Float32Array(out[0]);
         const classes = new Float32Array(out[1]);
@@ -92,9 +162,8 @@ export function useAircraftDetector(rotationOffset: number) {
             bestScore = scores[i];
           }
         }
-
         if (best < 0) {
-          report({
+          scheduleOnRN(report, {
             found: false, confidence: 0, box: null, sizeRatio: 0,
             sharpness: 0, brightness: 0, moire: 0, screenObject: 0, screenClass: -1,
             aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1,
@@ -102,17 +171,15 @@ export function useAircraftDetector(rotationOffset: number) {
           return;
         }
 
-        // Boîte au format [ymin, xmin, ymax, xmax], normalisée 0–1.
+        // Boîte [ymin, xmin, ymax, xmax] normalisée 0–1, image à l'endroit.
         const ymin = Math.max(0, boxes[best * 4]);
         const xmin = Math.max(0, boxes[best * 4 + 1]);
         const ymax = Math.min(1, boxes[best * 4 + 2]);
         const xmax = Math.min(1, boxes[best * 4 + 3]);
         const w = xmax - xmin;
         const h = ymax - ymin;
-        const sizeRatio = Math.max(w, h);
 
-        // 4. Netteté (variance du laplacien) et luminosité sur la zone de l'avion.
-        const S = MODEL_INPUT;
+        // 3. Netteté (variance du laplacien) et luminosité sur la zone de l'avion.
         const x0 = Math.max(1, Math.floor(xmin * S));
         const x1 = Math.min(S - 2, Math.ceil(xmax * S));
         const y0 = Math.max(1, Math.floor(ymin * S));
@@ -122,20 +189,15 @@ export function useAircraftDetector(rotationOffset: number) {
         let sumSq = 0;
         let lum = 0;
         let n = 0;
+        const gray = (k: number) => {
+          'worklet';
+          return 0.299 * rgb[k] + 0.587 * rgb[k + 1] + 0.114 * rgb[k + 2];
+        };
         for (let y = y0; y <= y1; y += step) {
           for (let x = x0; x <= x1; x += step) {
-            // Gris = 0,299 R + 0,587 V + 0,114 B ; laplacien 4-voisins.
             const k = (y * S + x) * 3;
-            const kl = k - 3;
-            const kr = k + 3;
-            const ku = k - S * 3;
-            const kd = k + S * 3;
-            const c = 0.299 * rgb[k] + 0.587 * rgb[k + 1] + 0.114 * rgb[k + 2];
-            const l = 0.299 * rgb[kl] + 0.587 * rgb[kl + 1] + 0.114 * rgb[kl + 2];
-            const r = 0.299 * rgb[kr] + 0.587 * rgb[kr + 1] + 0.114 * rgb[kr + 2];
-            const u = 0.299 * rgb[ku] + 0.587 * rgb[ku + 1] + 0.114 * rgb[ku + 2];
-            const dn = 0.299 * rgb[kd] + 0.587 * rgb[kd + 1] + 0.114 * rgb[kd + 2];
-            const lap = l + r + u + dn - 4 * c;
+            const c = gray(k);
+            const lap = gray(k - 3) + gray(k + 3) + gray(k - S * 3) + gray(k + S * 3) - 4 * c;
             sum += lap;
             sumSq += lap * lap;
             lum += c;
@@ -146,42 +208,28 @@ export function useAircraftDetector(rotationOffset: number) {
         const sharpness = n > 0 ? sumSq / n - mean * mean : 0;
         const brightness = n > 0 ? lum / n : 0;
 
-        // 5. Photo d'écran ? (web/screen.js, fonctions 'worklet' sans objet natif capturé)
+        // 4. Photo d'écran ?
         const scr = findScreenObject(boxes, classes, scores, count, xmin, ymin, xmax, ymax);
-        // Centre de l'avion ramené dans l'image brute du capteur (rotation dans le sens horaire,
-        // comme le plugin de redimensionnement), puis carré de 128 px à pleine résolution.
-        // Fait après les mesures : le plugin peut réutiliser la mémoire de `rgb`.
-        const ux = (xmin + xmax) / 2;
-        const uy = (ymin + ymax) / 2;
-        let ax = ux;
-        let ay = uy;
-        if (rotIndex === 1) { ax = uy; ay = 1 - ux; }
-        else if (rotIndex === 2) { ax = 1 - ux; ay = 1 - uy; }
-        else if (rotIndex === 3) { ax = 1 - uy; ay = ux; }
-        // Le moiré (FFT en JavaScript) coûte cher et bloque la caméra pendant le calcul :
-        // une analyse sur deux seulement.
-        runCount.value = runCount.value + 1;
         let moire = -1;
         let moireMs = -1;
-        if (runCount.value % 2 === 0 && frame.width >= PATCH && frame.height >= PATCH) {
+        if (state.count % 2 === 0 && fw >= PATCH && fh >= PATCH) {
           const tm = Date.now();
-          const px = Math.round(Math.min(frame.width - PATCH, Math.max(0, ax * frame.width - PATCH / 2)));
-          const py = Math.round(Math.min(frame.height - PATCH, Math.max(0, ay * frame.height - PATCH / 2)));
-          const patch = resize(frame, {
-            crop: { x: px, y: py, width: PATCH, height: PATCH },
-            scale: { width: PATCH, height: PATCH },
-            pixelFormat: 'rgb',
-            dataType: 'uint8',
-          });
+          const c = toRaw((xmin + xmax) / 2, (ymin + ymax) / 2);
+          const px = Math.round(Math.min(fw - PATCH, Math.max(0, c[0] * fw - PATCH / 2)));
+          const py = Math.round(Math.min(fh - PATCH, Math.max(0, c[1] * fh - PATCH / 2)));
+          const patch = new Uint8Array(PATCH * PATCH * 3);
+          for (let y = 0; y < PATCH; y++) {
+            for (let x = 0; x < PATCH; x++) rgbAt(px + x, py + y, patch, (y * PATCH + x) * 3);
+          }
           moire = analyzePatch(patch, PATCH).moire;
           moireMs = Date.now() - tm;
         }
 
-        report({
+        scheduleOnRN(report, {
           found: true,
           confidence: bestScore,
           box: { x: xmin, y: ymin, w, h },
-          sizeRatio,
+          sizeRatio: Math.max(w, h),
           sharpness,
           brightness,
           moire,
@@ -192,16 +240,25 @@ export function useAircraftDetector(rotationOffset: number) {
           detectMs,
           moireMs,
         });
+      } finally {
+        frame.dispose();
       }
-    },
-    [boxed, rotationOffset, resize, report, lastRun, runCount, intervalMs],
-  );
+  }, [ready, tflite, resizer, report, intervalMs]);
+
+  const frameOutput = useFrameOutput({
+    // 4:3 comme la photo ; 1440×1920 suffit pour le moiré et reste léger.
+    targetResolution: CommonResolutions.FHD_4_3,
+    pixelFormat: 'yuv',
+    dropFramesWhileBusy: true,
+    onFrame,
+  });
 
   return {
-    frameProcessor,
+    frameOutput,
     detection,
+    gpu,
     modelState: model.state,
-    modelError: model.state === 'error' ? model.error : null,
+    modelError: model.state === 'error' ? model.error : resizerState.state === 'error' && gpu ? resizerState.error.message : null,
   };
 }
 
@@ -212,8 +269,8 @@ type ModelState =
 
 /**
  * Charge le modèle embarqué. Dans l'app Android compilée, `require()` donne un nom de ressource
- * (« assets_models_efficientdet ») que fast-tflite 3.0.1 ne sait pas ouvrir (il attend une URL).
- * expo-asset copie d'abord le modèle dans un fichier, puis on passe son chemin file://.
+ * que fast-tflite ne sait pas ouvrir (il attend une URL) : expo-asset copie d'abord le modèle
+ * dans un fichier, puis on passe son chemin file://.
  */
 function useModel(): ModelState {
   const [state, setState] = useState<ModelState>({ state: 'loading' });

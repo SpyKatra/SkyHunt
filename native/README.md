@@ -22,19 +22,18 @@ La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte
 configuration Supabase sont importés directement de `../web` (voir `src/shared.ts` et `metro.config.js`).
 Modifier une règle dans `web/` la change dans les deux versions.
 
-## Versions figées
+## Versions épinglées (branche `sdk-58`)
 
-Expo SDK 56, React Native 0.85.3, vision-camera 4.7.3, worklets-core 1.6.3, resize-plugin 3.2.0,
-fast-tflite 3.0.1, nitro-modules 0.37.1 : **ne pas les mettre à jour** (voir CLAUDE.md).
-Ajouts 0.5 (versions compatibles SDK 56, installées avec `npx expo install`) : supabase-js 2.118.0,
-async-storage, url-polyfill, expo-image-manipulator, expo-text-extractor 2.0.0, react-native-webview, expo-haptics.
+Expo SDK 58, React Native 0.88.1, vision-camera 5.2.4 avec react-native-vision-camera-worklets et
+react-native-vision-camera-resizer 5.2.4, react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2,
+fast-tflite 3.0.1. Ne pas les mettre à jour sans tester sur un vrai téléphone (voir CLAUDE.md).
+Autres : supabase-js 2.118.0, async-storage, url-polyfill, expo-image-manipulator, expo-text-extractor 2.0.0,
+react-native-webview 14, expo-haptics (versions données par `npx expo install`).
 
-**Correctif vision-camera** (`patches/`, appliqué par `patch-package` au `npm install`) : sur Android, la liste des
-caméras était lue avant que CameraX ait fini de démarrer (« Aucune caméra arrière » au premier lancement) ;
-le module renvoie maintenant la liste à JS dès qu'elle est prête. À refaire ou retirer si vision-camera change.
-
-À savoir : `expo-doctor` signale une fuite de mémoire connue de Hermes dans RN 0.85, corrigée dans
-Expo SDK 57. À surveiller pendant les tests (l'app qui ralentit ou se ferme après un long moment de chasse).
+**Détection en direct (vision-camera 5)** : `src/useAircraftDetector.ts`. Le Resizer (GPU) remet l'image à l'endroit
+en 320×320 pour le modèle ; s'il n'est pas disponible (Android sans Vulkan), un repli lit les plans YUV en JavaScript.
+Le carré de 128 px du moiré est lu à pleine résolution dans les plans YUV. Le diagnostic indique « GPU » ou « CPU ».
+`patch-package` reste branché (`postinstall`) pour d'éventuels correctifs dans `patches/` ; celui de vision-camera 4 a été retiré.
 
 ## Installation (une seule fois, sur le PC)
 
@@ -86,5 +85,5 @@ Depuis une **zone publique** (stationnement, belvédère) ou une zone où tu as 
 
 1. Ouvre le **Diagnostic** : confiance, taille, netteté, luminosité, zoom et précision GPS en direct.
 2. Essaie le **zoom** (boutons ou pincement) sur un avion lointain : la taille doit monter au-dessus de 15 %.
-3. Si le cadre vert ne suit pas l'avion, touche **↻ Orientation** jusqu'à ce qu'il tombe juste et note l'angle.
+3. Si le cadre vert ne suit pas l'avion, fais une capture d'écran avec le diagnostic ouvert (l'orientation est maintenant gérée par vision-camera).
 4. Profil → **Copier les mesures** : envoie le CSV (il contient maintenant la colonne zoom).

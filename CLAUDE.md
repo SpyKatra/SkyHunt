@@ -60,10 +60,11 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 - Natif : les règles du jeu ne sont **pas recopiées** : `native/src/shared.ts` importe `web/catalog.js`, `game.js`,
   `registry.js`, `validation.js`, `config.js` et `cloud-config.js` (Metro `watchFolders`). Ces fichiers doivent rester
   sans DOM. Le registre est embarqué dans l'app et rafraîchi depuis GitHub Pages.
-- Natif : versions **figées** dans `native/` (Expo SDK 56, RN 0.85, vision-camera 4.7.3,
-  worklets-core 1.6.3, resize-plugin 3.2.0, fast-tflite 3.0.1, nitro-modules 0.37.1).
-  Ne pas mettre à jour une seule de ces dépendances. Dans les frame processors, **pas de sous-worklet**
-  qui capture un objet natif (le plugin Babel détache `unbox` / `runSync`).
+- Natif : versions **épinglées** dans `native/` (branche `sdk-58`, décidé par Spy le 2026-11-04 après des fermetures
+  de l'app sur Android en SDK 56) : Expo SDK 58, RN 0.88, vision-camera 5.2.4 (+ -worklets, -resizer 5.2.4),
+  react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2, fast-tflite 3.0.1.
+  Pas de mise à jour sans tester sur un vrai téléphone. Frame processor = `useFrameOutput({ onFrame })` :
+  appeler `frame.dispose()`, état entre images dans `globalThis` du worklet, retour à JS par `scheduleOnRN`.
 - Safari iOS : la caméra exige HTTPS (Pages) ou localhost. Changer `?v=` dans `web/index.html`
   quand `app.js` ou `style.css` change, sinon Safari garde l'ancienne version en cache.
 
@@ -116,9 +117,9 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
    il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).
    Distribution : APK par lien pour Android, TestFlight pour iPhone.
-   **Mise à jour d'Expo** (décidé le 2026-11-04) : d'abord tester la SDK 56 sur un vrai téléphone Android, puis essayer
-   la SDK 57 sur une branche séparée (corrige la fuite de mémoire de Hermes) en gardant vision-camera 4.7.3 si ça compile ;
-   sinon évaluer vision-camera 5 (réécriture complète, détecteur à refaire). SDK 58 avant la bêta fermée.
+   **Mise à jour d'Expo** (2026-11-04) : la SDK 56 (vision-camera 4) fermait l'app sur Android (aperçu noir puis
+   plantage natif). Spy a demandé de passer directement à la SDK 58 + vision-camera 5 : branche `sdk-58`, à tester
+   sur Android avant de la fusionner dans `main`.
 4. **Anti-triche serveur** : (anti-écran sur le téléphone : fait le 2026-11-03) jeton de capture à usage unique, signature, App Attest / Play Integrity,
    pHash anti-doublons, plus tard recoupement ADS-B (licence commerciale à vérifier).
 5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) en plus.

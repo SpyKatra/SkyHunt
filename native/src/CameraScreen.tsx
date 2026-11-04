@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
+import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SCREEN_CLASSES } from './shared';
 import { keepPhoto } from './storage';
 import { useApp } from './store';
@@ -20,30 +20,35 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const { hasPermission, requestPermission } = useCameraPermission();
   // Appareil « virtuel » qui passe tout seul de l'ultra grand-angle au téléobjectif selon le zoom.
   const device = useCameraDevice('back', {
-    physicalDevices: ['ultra-wide-angle-camera', 'wide-angle-camera', 'telephoto-camera'],
+    physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
   });
-  // Même proportion (4:3) pour l'analyse et la photo : le cadre détecté correspond à la photo.
-  const format = useCameraFormat(device, [
-    { videoAspectRatio: 4 / 3 },
-    { photoAspectRatio: 4 / 3 },
-    { videoResolution: { width: 1920, height: 1440 } },
-    { photoResolution: 'max' },
-  ]);
-  const camera = useRef<Camera>(null);
+  // Photo en 4:3 pleine résolution, comme l'image analysée : le cadre détecté correspond à la photo.
+  const photoOutput = usePhotoOutput({
+    targetResolution: CommonResolutions.HIGHEST_4_3,
+    containerFormat: 'jpeg',
+    quality: 0.95,
+    qualityPrioritization: 'quality',
+  });
 
-  const [rotationOffset, setRotationOffset] = useState(0);
   const [showDebug, setShowDebug] = useState(false);
   const [busy, setBusy] = useState(false);
   const thresholds = DEFAULT_THRESHOLDS;
 
-  const { frameProcessor, detection, modelState, modelError } = useAircraftDetector(rotationOffset);
+  const { frameOutput, detection, gpu, modelState, modelError } = useAircraftDetector();
+  const outputs = useMemo(() => [photoOutput, frameOutput], [photoOutput, frameOutput]);
   const check = checkDetection(detection, thresholds);
 
   const stats = useMemo(() => computeStats(list), [list]);
   const lv = levelFor(stats.xp);
 
   /* ---------------- Zoom ---------------- */
-  const neutral = device?.neutralZoom ?? 1;
+  // Zoom « 1× » = objectif principal. Android : valeurs déjà relatives (ultra grand-angle < 1).
+  // iPhone (appareil virtuel) : 1 = ultra grand-angle, le principal est au 1er seuil de bascule.
+  const neutral = device == null ? 1
+    : device.minZoom < 1 ? 1
+    : device.zoomLensSwitchFactors.length > 0 && device.physicalDevices.some((d) => d.type === 'ultra-wide-angle')
+      ? device.zoomLensSwitchFactors[0]
+      : device.minZoom;
   const minZoom = device?.minZoom ?? 1;
   const maxZoom = Math.min(device?.maxZoom ?? 1, neutral * 20);
   const [zoom, setZoom] = useState(neutral);
@@ -98,20 +103,20 @@ export default function CameraScreen({ active }: { active: boolean }) {
 
   /* ---------------- Capture ---------------- */
   const takeCapture = useCallback(async () => {
-    if (camera.current == null || busy) return;
+    if (busy) return;
     setBusy(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     // On fige le verdict au moment du déclenchement.
     const snapshot = detection;
     const verdict = checkDetection(snapshot, thresholds);
     try {
-      const photo = await camera.current.takePhoto({ enableShutterSound: false });
+      const photo = await photoOutput.capturePhotoToFile({ flashMode: 'off', enableShutterSound: false }, {});
       let pos = position.current;
       if (!pos) {
         pos = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
       }
       const id = `${Date.now()}`;
-      const photoUri = await keepPhoto(id, photo.path);
+      const photoUri = await keepPhoto(id, photo.filePath);
       const mocked = pos?.mocked === true;
       const reasons = [...verdict.reasons];
       if (!pos) reasons.push('Position GPS inconnue');
@@ -163,7 +168,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, [busy, detection, thresholds, factor, saveNew, identify, reveal, toast]);
+  }, [busy, detection, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
 
   /* ---------------- Rendu ---------------- */
   if (!hasPermission) {
@@ -194,17 +199,13 @@ export default function CameraScreen({ active }: { active: boolean }) {
       {/* Zone aux proportions exactes de l'image analysée : le cadre suit l'avion. */}
       <View style={[st.preview, { aspectRatio: aspect }]}>
         <Camera
-          ref={camera}
           style={StyleSheet.absoluteFill}
           device={device}
-          format={format}
           isActive={active}
-          photo
+          outputs={outputs}
           zoom={zoom}
-          frameProcessor={frameProcessor}
-          pixelFormat="yuv"
           resizeMode="cover"
-          photoQualityBalance="quality"
+          onError={(e) => toast(`Caméra : ${e.message}`)}
         />
         {box && (
           <View pointerEvents="none" style={[st.box, { left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, borderColor: boxColor }]}>
@@ -231,12 +232,9 @@ export default function CameraScreen({ active }: { active: boolean }) {
           <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
           <Text style={st.debugText}>
             Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
-            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · max {format?.maxFps ?? '?'} i/s · zoom ×{factor.toFixed(1)}
+            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : 'CPU'} · zoom ×{factor.toFixed(1)}
           </Text>
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
-          <Pressable onPress={() => setRotationOffset((r) => (r + 1) % 4)} style={st.smallBtn}>
-            <Text style={st.smallBtnText}>↻ Orientation ({rotationOffset * 90}°)</Text>
-          </Pressable>
         </View>
       )}
 

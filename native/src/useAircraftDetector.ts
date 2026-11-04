@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
+import { Asset } from 'expo-asset';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
-import { useTensorflowModel } from 'react-native-fast-tflite';
+import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tflite';
 import { NitroModules } from 'react-native-nitro-modules';
 import { useFrameProcessor } from 'react-native-vision-camera';
 import { useSharedValue, Worklets } from 'react-native-worklets-core';
@@ -20,10 +21,7 @@ const ROTATIONS: Rotation[] = ['0deg', '90deg', '180deg', '270deg'];
  * dessiné ne suit pas l'avion sur ton téléphone (bouton « ↻ » du diagnostic).
  */
 export function useAircraftDetector(rotationOffset: number) {
-  const model = useTensorflowModel(
-    require('../assets/models/efficientdet.tflite'),
-    Platform.OS === 'ios' ? ['core-ml'] : [],
-  );
+  const model = useModel();
   const loaded = model.state === 'loaded' ? model.model : undefined;
   const boxed = useMemo(() => (loaded != null ? NitroModules.box(loaded) : undefined), [loaded]);
 
@@ -187,6 +185,35 @@ export function useAircraftDetector(rotationOffset: number) {
     frameProcessor,
     detection,
     modelState: model.state,
-    modelError: model.state === 'error' ? model.error.message : null,
+    modelError: model.state === 'error' ? model.error : null,
   };
+}
+
+type ModelState =
+  | { state: 'loading' }
+  | { state: 'loaded'; model: TensorflowModel }
+  | { state: 'error'; error: string };
+
+/**
+ * Charge le modèle embarqué. Dans l'app Android compilée, `require()` donne un nom de ressource
+ * (« assets_models_efficientdet ») que fast-tflite 3.0.1 ne sait pas ouvrir (il attend une URL).
+ * expo-asset copie d'abord le modèle dans un fichier, puis on passe son chemin file://.
+ */
+function useModel(): ModelState {
+  const [state, setState] = useState<ModelState>({ state: 'loading' });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const asset = await Asset.fromModule(require('../assets/models/efficientdet.tflite')).downloadAsync();
+        const url = asset.localUri ?? asset.uri;
+        const model = await loadTensorflowModel({ url }, Platform.OS === 'ios' ? ['core-ml'] : []);
+        if (!cancelled) setState({ state: 'loaded', model });
+      } catch (e) {
+        if (!cancelled) setState({ state: 'error', error: e instanceof Error ? e.message : String(e) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  return state;
 }

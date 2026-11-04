@@ -116,6 +116,9 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
    il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).
    Distribution : APK par lien pour Android, TestFlight pour iPhone.
+   **Mise à jour d'Expo** (décidé le 2026-11-04) : d'abord tester la SDK 56 sur un vrai téléphone Android, puis essayer
+   la SDK 57 sur une branche séparée (corrige la fuite de mémoire de Hermes) en gardant vision-camera 4.7.3 si ça compile ;
+   sinon évaluer vision-camera 5 (réécriture complète, détecteur à refaire). SDK 58 avant la bêta fermée.
 4. **Anti-triche serveur** : (anti-écran sur le téléphone : fait le 2026-11-03) jeton de capture à usage unique, signature, App Attest / Play Integrity,
    pHash anti-doublons, plus tard recoupement ADS-B (licence commerciale à vérifier).
 5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) en plus.

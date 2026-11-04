@@ -181,7 +181,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const aspect = detection?.aspect ?? 3 / 4;
   const box = detection?.found && detection.confidence >= thresholds.minConfidence ? detection.box : null;
   const boxColor = check.ok ? C.ok : C.warn;
-  const status = modelState === 'loading' ? 'Chargement du modèle…' : modelError ? `Modèle : ${modelError}` : check.message;
+  const status = modelState === 'loading' ? 'Chargement du modèle…' : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}` : check.message;
 
   return (
     <View style={st.container} {...responder.panHandlers}>

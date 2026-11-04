@@ -4,6 +4,7 @@ import { AppState, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import CameraScreen from './src/CameraScreen';
 import CardsScreen from './src/CardsScreen';
+import { showLastCrash } from './src/crash';
 import DetailSheet from './src/DetailSheet';
 import IdentifySheet from './src/IdentifySheet';
 import MapScreen from './src/MapScreen';
@@ -37,6 +38,7 @@ function Main() {
   const [mapOpened, setMapOpened] = useState(false);
   const [foreground, setForeground] = useState(AppState.currentState === 'active');
 
+  useEffect(() => { showLastCrash(); }, []);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => setForeground(s === 'active'));
     return () => sub.remove();

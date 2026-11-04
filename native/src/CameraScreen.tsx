@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
-import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor } from './shared';
+import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SCREEN_CLASSES } from './shared';
 import { keepPhoto } from './storage';
 import { useApp } from './store';
 import { C } from './theme';
@@ -132,6 +132,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
         sizeRatio: snapshot?.sizeRatio ?? 0,
         sharpness: snapshot?.sharpness ?? 0,
         brightness: snapshot?.brightness ?? 0,
+        moire: snapshot?.moire ?? null,
+        screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },
         valid,
@@ -219,6 +221,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
           <Text style={st.debugText}>Taille : {Math.round(detection.sizeRatio * 100)} % (min {Math.round(thresholds.minSizeRatio * 100)})</Text>
           <Text style={st.debugText}>Netteté : {Math.round(detection.sharpness)} (min {thresholds.minSharpness})</Text>
           <Text style={st.debugText}>Luminosité : {Math.round(detection.brightness)}</Text>
+          <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire})</Text>
+          <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
           <Text style={st.debugText}>Analyse : {Math.round(detection.inferenceMs)} ms · zoom ×{factor.toFixed(1)}</Text>
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
           <Pressable onPress={() => setRotationOffset((r) => (r + 1) % 4)} style={st.smallBtn}>

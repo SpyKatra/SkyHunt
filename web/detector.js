@@ -1,6 +1,7 @@
 // Détection d'avion avec EfficientDet-Lite0 (TFLite), exécuté en WebAssembly dans le navigateur.
 // Même modèle et même post-traitement que le prototype natif.
 import { AIRPLANE_CLASS, MODEL_INPUT } from './config.js';
+import { analyzePatch, findScreenObject, PATCH, pushMedian } from './screen.js';
 
 const S = MODEL_INPUT;
 
@@ -16,6 +17,13 @@ export async function createDetector() {
   canvas.height = S;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const rgb = new Uint8Array(S * S * 3);
+  // Carré pris à pleine résolution au centre de l'avion (anti-triche « photo d'écran »).
+  const pcanvas = document.createElement('canvas');
+  pcanvas.width = PATCH;
+  pcanvas.height = PATCH;
+  const pctx = pcanvas.getContext('2d', { willReadFrequently: true });
+  const prgb = new Uint8Array(PATCH * PATCH * 3);
+  const moireHist = [];
 
   /**
    * Analyse l'image actuelle de la vidéo.
@@ -52,7 +60,9 @@ export async function createDetector() {
     }
 
     if (best < 0) {
+      moireHist.length = 0;
       return { found: false, confidence: 0, box: null, sizeRatio: 0, sharpness: 0, brightness: 0,
+        moire: 0, screenObject: 0, screenClass: -1,
         inferenceMs: performance.now() - t0 };
     }
 
@@ -67,6 +77,24 @@ export async function createDetector() {
     // 3. Netteté (variance du laplacien) et luminosité sur la zone de l'avion.
     const { sharpness, brightness } = measureZone(rgb, xmin, ymin, xmax, ymax);
 
+    // 4. Photo d'écran ? Écran détecté autour de l'avion + moiré à pleine résolution.
+    const scr = findScreenObject(boxes, classes, scores, count, xmin, ymin, xmax, ymax);
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    let moire = 0;
+    if (vw >= PATCH && vh >= PATCH) {
+      const sx = Math.round(Math.min(vw - PATCH, Math.max(0, ((xmin + xmax) / 2) * vw - PATCH / 2)));
+      const sy = Math.round(Math.min(vh - PATCH, Math.max(0, ((ymin + ymax) / 2) * vh - PATCH / 2)));
+      pctx.drawImage(video, sx, sy, PATCH, PATCH, 0, 0, PATCH, PATCH);
+      const p = pctx.getImageData(0, 0, PATCH, PATCH).data;
+      for (let i = 0, j = 0; i < p.length; i += 4, j += 3) {
+        prgb[j] = p[i];
+        prgb[j + 1] = p[i + 1];
+        prgb[j + 2] = p[i + 2];
+      }
+      moire = pushMedian(moireHist, analyzePatch(prgb, PATCH).moire);
+    }
+
     return {
       found: true,
       confidence: bestScore,
@@ -74,6 +102,9 @@ export async function createDetector() {
       sizeRatio: Math.max(w, h),
       sharpness,
       brightness,
+      moire,
+      screenObject: scr.score,
+      screenClass: scr.cls,
       inferenceMs: performance.now() - t0,
     };
   }

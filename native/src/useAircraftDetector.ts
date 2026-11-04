@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { NitroModules } from 'react-native-nitro-modules';
@@ -6,6 +6,7 @@ import { useFrameProcessor } from 'react-native-vision-camera';
 import { useSharedValue, Worklets } from 'react-native-worklets-core';
 import { useResizePlugin } from 'vision-camera-resize-plugin';
 import { AIRPLANE_CLASS, DETECTION_FPS, MODEL_INPUT } from './config';
+import { analyzePatch, findScreenObject, PATCH, pushMedian } from './shared';
 import type { Detection } from './types';
 
 type Rotation = '0deg' | '90deg' | '180deg' | '270deg';
@@ -28,7 +29,13 @@ export function useAircraftDetector(rotationOffset: number) {
 
   const { resize } = useResizePlugin();
   const [detection, setDetection] = useState<Detection | null>(null);
-  const report = useMemo(() => Worklets.createRunOnJS(setDetection), []);
+  // Côté JS : médiane du moiré sur les 3 dernières analyses (un pic dû au bruit ne suffit pas).
+  const moireHist = useRef<number[]>([]);
+  const report = useMemo(() => Worklets.createRunOnJS((d: Detection) => {
+    if (!d.found) moireHist.current = [];
+    else d.moire = pushMedian(moireHist.current, d.moire);
+    setDetection(d);
+  }), []);
   const lastRun = useSharedValue(0);
   const intervalMs = 1000 / DETECTION_FPS;
 
@@ -83,7 +90,8 @@ export function useAircraftDetector(rotationOffset: number) {
         if (best < 0) {
           report({
             found: false, confidence: 0, box: null, sizeRatio: 0,
-            sharpness: 0, brightness: 0, aspect, inferenceMs: Date.now() - t0,
+            sharpness: 0, brightness: 0, moire: 0, screenObject: 0, screenClass: -1,
+            aspect, inferenceMs: Date.now() - t0,
           });
           return;
         }
@@ -132,6 +140,31 @@ export function useAircraftDetector(rotationOffset: number) {
         const sharpness = n > 0 ? sumSq / n - mean * mean : 0;
         const brightness = n > 0 ? lum / n : 0;
 
+        // 5. Photo d'écran ? (web/screen.js, fonctions 'worklet' sans objet natif capturé)
+        const scr = findScreenObject(boxes, classes, scores, count, xmin, ymin, xmax, ymax);
+        // Centre de l'avion ramené dans l'image brute du capteur (rotation dans le sens horaire,
+        // comme le plugin de redimensionnement), puis carré de 128 px à pleine résolution.
+        // Fait après les mesures : le plugin peut réutiliser la mémoire de `rgb`.
+        const ux = (xmin + xmax) / 2;
+        const uy = (ymin + ymax) / 2;
+        let ax = ux;
+        let ay = uy;
+        if (rotIndex === 1) { ax = uy; ay = 1 - ux; }
+        else if (rotIndex === 2) { ax = 1 - ux; ay = 1 - uy; }
+        else if (rotIndex === 3) { ax = 1 - uy; ay = ux; }
+        let moire = 0;
+        if (frame.width >= PATCH && frame.height >= PATCH) {
+          const px = Math.round(Math.min(frame.width - PATCH, Math.max(0, ax * frame.width - PATCH / 2)));
+          const py = Math.round(Math.min(frame.height - PATCH, Math.max(0, ay * frame.height - PATCH / 2)));
+          const patch = resize(frame, {
+            crop: { x: px, y: py, width: PATCH, height: PATCH },
+            scale: { width: PATCH, height: PATCH },
+            pixelFormat: 'rgb',
+            dataType: 'uint8',
+          });
+          moire = analyzePatch(patch, PATCH).moire;
+        }
+
         report({
           found: true,
           confidence: bestScore,
@@ -139,6 +172,9 @@ export function useAircraftDetector(rotationOffset: number) {
           sizeRatio,
           sharpness,
           brightness,
+          moire,
+          screenObject: scr.score,
+          screenClass: scr.cls,
           aspect,
           inferenceMs: Date.now() - t0,
         });

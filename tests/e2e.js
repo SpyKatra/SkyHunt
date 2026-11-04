@@ -46,6 +46,13 @@ const URL_APP = process.env.SKYHUNT_URL || 'http://localhost:8766/';
   console.log('reveal2:', (await p.textContent('#reveal-details')).replace(/\s+/g, ' ').trim());
   await p.click('#reveal-ok');
 
+  // 4) avion photographié sur un écran -> refusé (anti-triche, web/screen.js)
+  await p.waitForFunction(() => document.querySelector('#status').textContent.startsWith('Photo d’écran'), null, { timeout: 20000 });
+  await p.screenshot({ path: require('path').join(__dirname, 'shots', 's3b-ecran.png') });
+  await p.click('#shutter');
+  await p.waitForTimeout(600);
+  console.log('écran:', await p.textContent('#toast').catch(() => '?'));
+
   // Cartes
   await p.click('[data-view="cards"]');
   await p.waitForTimeout(400);

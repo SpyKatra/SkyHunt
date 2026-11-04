@@ -6,6 +6,7 @@ import * as webConfig from '../../web/config.js';
 import * as game from '../../web/game.js';
 import * as registry from '../../web/registry.js';
 import * as validation from '../../web/validation.js';
+import * as screen from '../../web/screen.js';
 import type { CheckResult, Detection, Scored, Capture, Thresholds } from './types';
 
 export type RarityKey = 'commun' | 'peuCommun' | 'rare' | 'epique' | 'legendaire';
@@ -20,6 +21,17 @@ export const nearestAirport = catalog.nearestAirport as (lat: number | null, lon
   { code: string; name: string; km: number } | null;
 
 export const DEFAULT_THRESHOLDS = webConfig.DEFAULT_THRESHOLDS as Thresholds;
+
+// Anti-triche « photo d'écran » : fonctions 'worklet', appelées dans le frame processor.
+export const PATCH = screen.PATCH as number;
+export const SCREEN_CLASSES = screen.SCREEN_CLASSES as Record<number, string>;
+export const findScreenObject = screen.findScreenObject as (
+  boxes: Float32Array, classes: Float32Array, scores: Float32Array, count: number,
+  xmin: number, ymin: number, xmax: number, ymax: number,
+) => { score: number; cls: number };
+export const pushMedian = screen.pushMedian as (hist: number[], value: number, k?: number) => number;
+export const analyzePatch = screen.analyzePatch as (rgb: Uint8Array, n: number) =>
+  { moire: number };
 
 export const checkDetection = validation.checkDetection as (d: Detection | null, t: Thresholds) => CheckResult;
 

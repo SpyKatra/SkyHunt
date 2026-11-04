@@ -38,7 +38,7 @@ function check(name, ok, extra = '') {
 const jpeg = (n) => new Blob([Buffer.from([0xff, 0xd8, 0xff, 0xe0, n, 0xff, 0xd9])], { type: 'image/jpeg' });
 const capture = (id, extra = {}) => ({
   client_id: id, taken_at: new Date().toISOString(), latitude: 46.7956, longitude: -71.3821, accuracy_m: 5,
-  confidence: 0.82, size_ratio: 0.5, sharpness: 5230, brightness: 167, valid: true, reasons: [], type_id: 'saab-340', ...extra,
+  confidence: 0.82, size_ratio: 0.5, sharpness: 5230, brightness: 167, moire: 8.5, screen_object: 0, valid: true, reasons: [], type_id: 'saab-340', ...extra,
 });
 
 (async () => {
@@ -99,6 +99,12 @@ const capture = (id, extra = {}) => ({
   check('position figée', !!r.error);
   r = await A.from('captures').update({ valid: false }).eq('client_id', '1');
   check('validité figée', !!r.error);
+  r = await A.from('captures').update({ moire: 0 }).eq('client_id', '1');
+  check('mesure anti-écran (moiré) figée', !!r.error);
+  r = await A.from('captures').update({ screen_object: 0.9 }).eq('client_id', '1');
+  check('mesure anti-écran (écran détecté) figée', !!r.error);
+  r = await A.from('captures').insert(capture('ecran-hors-borne', { screen_object: 2 }));
+  check('écran détecté : valeur entre 0 et 1', !!r.error);
   r = await A.from('captures').update({ photo_path: `${uidA}/2.jpg` }).eq('client_id', '1');
   check('photo de la capture figée', !!r.error);
   r = await A.from('captures').insert(capture('futur', { taken_at: new Date(Date.now() + 3600e3).toISOString() }));

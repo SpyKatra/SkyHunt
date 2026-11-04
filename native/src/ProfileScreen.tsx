@@ -43,10 +43,11 @@ export default function ProfileScreen() {
   const maxRarity = Math.max(1, ...Object.values(s.byRarity));
 
   const copyData = async () => {
-    const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,precision_gps_m,zoom,raisons';
+    const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,moire_db,ecran,precision_gps_m,zoom,raisons';
     const rows = list.map((c) => [
       c.takenAt, c.valid ? 'oui' : 'non', c.typeId || '', c.registration || '', c.registrationSource || '', `"${c.registryModel || ''}"`, c.points,
       c.confidence.toFixed(2), c.sizeRatio.toFixed(2), Math.round(c.sharpness), Math.round(c.brightness),
+      c.moire != null ? c.moire.toFixed(1) : '', c.screenObject != null ? c.screenObject.toFixed(2) : '',
       c.accuracy != null ? Math.round(c.accuracy) : '', c.zoom != null ? c.zoom.toFixed(1) : '', `"${c.reasons.join(' | ')}"`,
     ].join(','));
     await Share.share({ message: [head, ...rows].join('\n') }).catch(() => {});

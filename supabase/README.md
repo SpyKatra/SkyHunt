@@ -5,6 +5,7 @@
 | Fichier | Rôle |
 | --- | --- |
 | `migrations/20261103000000_comptes_et_captures.sql` | Tables `profiles` et `captures`, règles RLS, mesures figées, suppression du compte, compartiment photo `captures` |
+| `migrations/20261104000000_anti_ecran.sql` | Mesures anti-triche « photo d'écran » (`moire`, `screen_object`), figées comme les autres |
 | `templates/code.html` | Courriel « Ton code SkyHunt » (code à 6 chiffres) |
 | `config.toml` | Configuration de l'instance locale (`npx supabase start`) |
 
@@ -22,7 +23,7 @@
 
 1. Créer un compte sur <https://supabase.com> puis un projet **skyhunt**, région **Canada (Central)**
    (`ca-central-1`, données au Canada : plus simple pour la Loi 25). Noter le mot de passe de la base.
-2. Appliquer la migration, au choix :
+2. Appliquer les migrations **dans l'ordre**, au choix :
    - **SQL Editor** du tableau de bord : coller le contenu du fichier de migration, puis *Run* ;
    - ou en ligne de commande, depuis la racine du dépôt :
      ```bash

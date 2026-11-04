@@ -10,6 +10,7 @@ La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte
 | **Zoom optique** | Boutons 0,5× / 1× / 2× / 3× / 5× / 10× selon le téléphone, et pincement ; passe tout seul sur le téléobjectif | `src/CameraScreen.tsx` |
 | Détection en direct | EfficientDet-Lite0, ~5 analyses/s, cadre vert/orange | `src/useAircraftDetector.ts` |
 | Vraie photo | Pleine résolution, même proportion 4:3 que l'analyse | `src/CameraScreen.tsx` |
+| Anti-triche « photo d'écran » | Écran détecté autour de l'avion ou moiré coloré (`web/screen.js`, calculé dans le frame processor) | `src/useAircraftDetector.ts` |
 | Lecture de l'immatriculation | Apple Vision (iPhone) / Google ML Kit (Android), puis registre de Transport Canada | `src/ocr.ts`, `src/IdentifySheet.tsx` |
 | Cartes, album, refusées, détail | Comme sur le web | `src/CardsScreen.tsx`, `src/DetailSheet.tsx` |
 | Révélation animée + vibrations | Points, niveau, succès | `src/RevealModal.tsx` |

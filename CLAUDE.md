@@ -21,6 +21,7 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | Caméra intégrée seulement (pas d'import de galerie) | `web/app.js` |
 | Détection d'avion EfficientDet-Lite0 (COCO, classe 4 = airplane) en WebAssembly, ~5 analyses/s | `web/detector.js`, `web/vendor/tflite/` |
 | Validation : confiance ≥ 50 %, taille ≥ 15 %, netteté (variance du laplacien), luminosité | `web/validation.js`, `web/config.js` |
+| **Anti-triche « photo d'écran »** : écran COCO (télé / portable / téléphone) autour de l'avion ≥ 40 %, ou moiré coloré ≥ 12 dB (FFT de la couleur sur 128 px à pleine résolution, médiane de 3 analyses). Partagé avec le natif (fonctions `'worklet'`) | `web/screen.js` |
 | Lecture de l'immatriculation (Tesseract.js, binarisation d'Otsu, 2 passes) | `web/ocr.js`, `web/vendor/tesseract/` |
 | Registre de Transport Canada : marque C-XXXX → modèle exact → type SkyHunt | `web/registry.js`, `web/data/registre-ca.json` |
 | Catalogue de 69 types, 5 raretés, aéroports de référence | `web/catalog.js` |
@@ -78,9 +79,9 @@ node tests/cloud.js                            # règles du serveur
 node tests/e2e-cloud.js                        # compte + synchro entre 2 « téléphones »
 ```
 
-`tests/e2e.js` utilise une fausse caméra (avion dessiné : loin → proche avec « C-FJEP » → flou) et
-vérifie : refus « trop loin », lecture C-FJEP → Saab 340B, révélation +12 pts, capture répétée à 0 pt,
-cartes, album, carte du monde, profil. Captures d'écran dans `tests/shots/`.
+`tests/e2e.js` utilise une fausse caméra (avion dessiné : loin → proche avec « C-FJEP » → flou → le même
+avion sur un écran) et vérifie : refus « trop loin », lecture C-FJEP → Saab 340B, révélation +12 pts,
+capture répétée à 0 pt, refus « photo d'écran », cartes, album, carte du monde, profil. Captures d'écran dans `tests/shots/`.
 Le vrai test reste Spy sur son iPhone : il colle le CSV du bouton « Copier les mesures ».
 
 ### Seuils à calibrer
@@ -88,6 +89,12 @@ Le vrai test reste Spy sur son iPhone : il colle le CSV du bouton « Copier les 
 Première vraie photo (Saab 340 à YQB, iPhone) : confiance 0,82, taille 0,82, **netteté 5230**,
 luminosité 167. Le seuil de netteté (60) est donc beaucoup trop bas ; il faut des photos floues,
 lointaines et en contre-jour pour le régler.
+
+**Moiré (anti-écran)** : réglé sur simulation (photos réelles ≤ 9,2 dB, avion filmé ≤ 10 dB, écrans nets
+de près 14 à 30 dB ; écrans de loin ou flous non détectés). Seuil 12 dB. Il faut des vraies mesures :
+de vrais avions (surtout de près, hublots nets) et des avions sur écran d'ordinateur / téléphone.
+La luminance n'est **pas** utilisée : une rangée de hublots nets y crée des pics comme un écran.
+La vidéo de test passe par un faux « capteur » (flou + bruit) : une image dessinée brute ressemble à un écran.
 
 ## Automatisations GitHub
 
@@ -109,7 +116,7 @@ lointaines et en contre-jour pour le régler.
    la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
    il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).
    Distribution : APK par lien pour Android, TestFlight pour iPhone.
-4. **Anti-triche serveur** : jeton de capture à usage unique, signature, App Attest / Play Integrity,
+4. **Anti-triche serveur** : (anti-écran sur le téléphone : fait le 2026-11-03) jeton de capture à usage unique, signature, App Attest / Play Integrity,
    pHash anti-doublons, plus tard recoupement ADS-B (licence commerciale à vérifier).
 5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) en plus.
 6. **Bêta fermée** (TestFlight, test fermé Play Store), 50 à 300 testeurs.

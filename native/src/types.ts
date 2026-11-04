@@ -11,6 +11,12 @@ export type Detection = {
   sharpness: number;
   /** Luminosité moyenne de la zone (0–255). */
   brightness: number;
+  /** Anti-triche : pic du spectre (dB) sur un carré à pleine résolution au centre de l'avion. */
+  moire: number;
+  /** Anti-triche : confiance d'un écran (télé, portable, téléphone) autour de l'avion (0–1). */
+  screenObject: number;
+  /** Classe COCO de cet écran (-1 si aucun). */
+  screenClass: number;
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
   aspect: number;
   /** Durée d'inférence (ms). */
@@ -25,6 +31,8 @@ export type Thresholds = {
   minSharpness: number;
   minBrightness: number;
   maxBrightness: number;
+  maxMoire: number;
+  maxScreenObject: number;
 };
 
 export type CheckResult = {
@@ -56,6 +64,8 @@ export type Capture = {
   sizeRatio: number;
   sharpness: number;
   brightness: number;
+  moire?: number | null;
+  screenObject?: number | null;
   box: Box | null;
   thresholds: Thresholds | null;
   valid: boolean;

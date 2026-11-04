@@ -11,6 +11,7 @@ import { bindMapPopupLinks, initMap, renderMap } from './ui-map.js';
 import { initProfile, renderProfile } from './ui-profile.js';
 import { reveal } from './ui-reveal.js';
 import { checkDetection } from './validation.js';
+import { SCREEN_CLASSES } from './screen.js';
 
 const video = $('video');
 const overlay = $('overlay');
@@ -185,6 +186,9 @@ function render() {
   set('d-size', `${Math.round(d.sizeRatio * 100)} % (min ${Math.round(t.minSizeRatio * 100)})`, d.found && d.sizeRatio < t.minSizeRatio);
   set('d-sharp', `${Math.round(d.sharpness)} (min ${t.minSharpness})`, d.found && d.sharpness < t.minSharpness);
   set('d-bright', `${Math.round(d.brightness)}`, d.found && (d.brightness < t.minBrightness || d.brightness > t.maxBrightness));
+  set('d-moire', `${Math.round(d.moire || 0)} dB (max ${t.maxMoire})`, d.found && (d.moire || 0) >= t.maxMoire);
+  set('d-screen', d.screenObject ? `${SCREEN_CLASSES[d.screenClass] || 'écran'} ${Math.round(d.screenObject * 100)} %` : 'non',
+    d.found && (d.screenObject || 0) >= t.maxScreenObject);
   set('d-ms', `${Math.round(d.inferenceMs)} ms`, false);
   drawBox(d, c);
 }
@@ -270,6 +274,8 @@ async function capture() {
       sizeRatio: d.sizeRatio,
       sharpness: d.sharpness,
       brightness: d.brightness,
+      moire: d.moire ?? null,
+      screenObject: d.screenObject ?? null,
       box: d.box || null,
       thresholds: { ...state.thresholds },
       valid,
@@ -330,10 +336,11 @@ async function removeCapture(id) {
 }
 
 async function copyData() {
-  const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,precision_gps_m,raisons';
+  const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,moire_db,ecran,precision_gps_m,raisons';
   const rows = state.list.map((c) => [
     c.takenAt, c.valid ? 'oui' : 'non', c.typeId || '', c.registration || '', c.registrationSource || '', `"${c.registryModel || ''}"`, c.points,
     c.confidence.toFixed(2), c.sizeRatio.toFixed(2), Math.round(c.sharpness), Math.round(c.brightness),
+    c.moire != null ? c.moire.toFixed(1) : '', c.screenObject != null ? c.screenObject.toFixed(2) : '',
     c.accuracy != null ? Math.round(c.accuracy) : '', `"${c.reasons.join(' | ')}"`,
   ].join(','));
   const csv = [head, ...rows].join('\n');

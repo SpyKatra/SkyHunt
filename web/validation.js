@@ -6,9 +6,20 @@ export function checkDetection(d, t) {
   }
   const reasons = [];
   let message = 'Avion identifiable — capture !';
+  // Photo d'un écran : refusée, et ce message passe avant tous les autres.
+  let screen = false;
+  if ((d.screenObject || 0) >= t.maxScreenObject) {
+    reasons.push(`Écran détecté autour de l’avion (${Math.round(d.screenObject * 100)} %)`);
+    screen = true;
+  }
+  if ((d.moire || 0) >= t.maxMoire) {
+    reasons.push(`Motif d’écran dans l’image (moiré ${Math.round(d.moire)} dB)`);
+    screen = true;
+  }
+  if (screen) message = 'Photo d’écran refusée — vise un vrai avion';
   if (d.sizeRatio < t.minSizeRatio) {
     reasons.push(`Avion trop petit (${Math.round(d.sizeRatio * 100)} % < ${Math.round(t.minSizeRatio * 100)} %)`);
-    message = 'Trop loin — rapproche-toi';
+    if (reasons.length === 1) message = 'Trop loin — rapproche-toi';
   }
   if (d.sharpness < t.minSharpness) {
     reasons.push(`Photo floue (netteté ${Math.round(d.sharpness)} < ${t.minSharpness})`);

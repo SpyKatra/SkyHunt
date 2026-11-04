@@ -6,6 +6,9 @@ export const DEFAULT_THRESHOLDS = {
   minSharpness: 60,   // variance du laplacien sur la zone de l'avion
   minBrightness: 25,  // luminosité moyenne de la zone (0–255)
   maxBrightness: 235,
+  // Anti-triche « photo d'écran » (web/screen.js). Seuils prudents, à calibrer avec de vraies photos.
+  maxMoire: 12,          // pics du spectre de la couleur, en dB (photos réelles testées : ≤ 10)
+  maxScreenObject: 0.4,  // confiance d'un écran (télé, portable, téléphone) détecté autour de l'avion
 };
 
 export const DETECTION_INTERVAL_MS = 200; // ~5 analyses par seconde

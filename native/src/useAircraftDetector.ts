@@ -25,7 +25,7 @@ export function useAircraftDetector() {
   const model = useModel();
   const tflite = model.state === 'loaded' ? model.model : undefined;
 
-  const gpu = useMemo(() => { try { return isResizerAvailable(); } catch { return false; } }, []);
+  const gpuAvailable = useMemo(() => { try { return isResizerAvailable(); } catch { return false; } }, []);
   const resizerState = useResizer({
     width: MODEL_INPUT,
     height: MODEL_INPUT,
@@ -34,6 +34,8 @@ export function useAircraftDetector() {
     scaleMode: 'stretch',
     pixelLayout: 'interleaved',
   });
+  // Si le Resizer échoue (shader absent, pilote Vulkan…), on passe au calcul sur le processeur.
+  const gpu = gpuAvailable && resizerState.state !== "error";
   const resizer = gpu ? resizerState.resizer : undefined;
 
   const [detection, setDetection] = useState<Detection | null>(null);
@@ -258,7 +260,8 @@ export function useAircraftDetector() {
     detection,
     gpu,
     modelState: model.state,
-    modelError: model.state === 'error' ? model.error : resizerState.state === 'error' && gpu ? resizerState.error.message : null,
+    modelError: model.state === 'error' ? model.error : null,
+    gpuError: gpuAvailable && resizerState.state === 'error' ? resizerState.error.message : null,
   };
 }
 

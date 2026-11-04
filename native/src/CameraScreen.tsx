@@ -34,7 +34,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const [busy, setBusy] = useState(false);
   const thresholds = DEFAULT_THRESHOLDS;
 
-  const { frameOutput, detection, gpu, modelState, modelError } = useAircraftDetector();
+  const { frameOutput, detection, gpu, gpuError, modelState, modelError } = useAircraftDetector();
   const outputs = useMemo(() => [photoOutput, frameOutput], [photoOutput, frameOutput]);
   const check = checkDetection(detection, thresholds);
 
@@ -232,7 +232,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
           <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
           <Text style={st.debugText}>
             Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
-            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : 'CPU'} · zoom ×{factor.toFixed(1)}
+            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : gpuError ? `CPU (GPU : ${gpuError.slice(0, 60)})` : 'CPU'} · zoom ×{factor.toFixed(1)}
           </Text>
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
         </View>

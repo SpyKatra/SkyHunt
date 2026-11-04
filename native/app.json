@@ -11,7 +11,8 @@
       "bundleIdentifier": "com.spykatra.skyhunt",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche.",
-        "NSPhotoLibraryAddUsageDescription": "SkyHunt peut enregistrer tes cartes dans tes photos quand tu les partages."
+        "NSPhotoLibraryAddUsageDescription": "SkyHunt peut enregistrer tes cartes dans tes photos quand tu les partages.",
+        "NSCameraUsageDescription": "SkyHunt utilise la caméra pour photographier les avions de ta collection."
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -20,9 +21,9 @@
     "android": {
       "package": "com.spykatra.skyhunt",
       "permissions": [
-        "CAMERA",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#0B1220",
@@ -59,6 +60,12 @@
           "enableCoreMLDelegate": true
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "371e3b65-9fbc-47ef-8829-94f871444f7d"
+      }
+    },
+    "owner": "spykatra"
   }
 }

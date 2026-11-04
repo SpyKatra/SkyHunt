@@ -39,6 +39,16 @@
    dans `web/cloud-config.js`. Jamais la clé secrète.
 7. Pousser : GitHub Pages republie l'app ; la section « Compte » apparaît dans Profil.
 
+### Courriels : configuration actuelle
+
+SMTP Gmail (mot de passe d'application Google, `smtp.gmail.com:465`), expéditeur « SkyHunt », code à 6 chiffres
+(*Email OTP Length* = 6). Le même modèle `templates/code.html` est dans **Magic link or OTP** et **Confirm signup**.
+
+- Copier le modèle sous Windows : `Get-Content supabase/templates/code.html -Raw -Encoding UTF8 | Set-Clipboard`
+  (sans `-Encoding UTF8`, Windows PowerShell abîme les accents ; le modèle n'en contient d'ailleurs plus : entités HTML).
+- Après un changement de modèle, Supabase met **quelques minutes** à l'appliquer : les courriels envoyés juste après
+  utilisent encore l'ancienne version.
+
 ### Courriels : limite importante
 
 Le serveur de courriel fourni par Supabase n'envoie qu'environ **2 courriels par heure** et seulement aux

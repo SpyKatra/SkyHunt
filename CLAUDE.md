@@ -97,9 +97,9 @@ lointaines et en contre-jour pour le régler.
 ## Feuille de route (vers une vraie app)
 
 1. **Serveur et comptes** : Supabase (PostgreSQL + PostGIS, Auth avec Apple / Google / courriel, Storage).
-   Envoyer les captures, garder un cache local. ← **fait**, sauf le SMTP perso : sans lui, Supabase n'envoie
-   qu'un **lien** (pas le code à 6 chiffres), seulement à Spy, ~2 courriels/h ; le lien ne connecte que dans Safari,
-   pas dans l'app de l'écran d'accueil. À brancher (Resend ou Gmail) puis mettre `supabase/templates/code.html`.
+   Envoyer les captures, garder un cache local. ← **fait** (2026-11-03). Courriels : SMTP Gmail de Spy
+   (≈ 500/jour, suffisant pour 5-6 joueurs en développement) ; passer à Resend + nom de domaine avant la bêta.
+   Les captures envoyées sont recompressées (JPEG 80 %, 1920 px) ; l'original reste sur le téléphone.
 2. **Classements** : mondial, national (pays du compte), mensuel, amis ; rareté des lieux calculée
    à partir des captures (remplace P_lieu = 1).
 3. **Passage en natif** : porter les fonctions web dans `native/`, compte Apple Developer, EAS Build.

@@ -7,6 +7,7 @@ import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, Style
 import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { takeCaptureToken } from './cloud';
 import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SAFETY_TEXT, SAFETY_VERSION, SCREEN_CLASSES } from './shared';
+import { measurePhotoMoire } from './photoMoire';
 import { keepPhoto } from './storage';
 import { useApp } from './store';
 import { C } from './theme';
@@ -186,6 +187,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
       }
       const id = `${Date.now()}`;
       const photoUri = await keepPhoto(id, photo.filePath);
+      // Diagnostic : moiré sur la photo en pleine résolution (le flux vidéo est trop lissé pour voir un écran).
+      const pm = await measurePhotoMoire(photoUri, snapshot?.box ?? null, snapshot?.rot ?? 0, snapshot?.aspect ?? 0.75);
       const mocked = pos?.mocked === true;
       const reasons = [...verdict.reasons];
       if (!pos) reasons.push('Position GPS inconnue');
@@ -207,6 +210,10 @@ export default function CameraScreen({ active }: { active: boolean }) {
         sharpness: snapshot?.sharpness ?? 0,
         brightness: snapshot?.brightness ?? 0,
         moire: snapshot?.moire ?? null,
+        moirePeaks: snapshot?.moirePeaks ?? null,
+        photoMoire: pm ? pm.moire : null,
+        photoMoirePeaks: pm ? pm.peaks : null,
+        photoMoireInfo: pm ? pm.info : null,
         screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },

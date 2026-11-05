@@ -240,7 +240,7 @@ export function useAircraftDetector() {
           scheduleOnRN(report, {
             found: false, confidence: 0, box: null, sizeRatio: 0,
             sharpness: 0, brightness: 0, moire: 0, screenObject: 0, screenClass: -1,
-            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1, frameInfo, cameraFps: state.fps, rotConf,
+            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1, frameInfo, cameraFps: state.fps, rotConf, rot,
           });
           return;
         }
@@ -320,6 +320,7 @@ export function useAircraftDetector() {
           cameraFps: state.fps,
           rotConf,
           moirePeaks,
+          rot,
         });
       } finally {
         frame.dispose();

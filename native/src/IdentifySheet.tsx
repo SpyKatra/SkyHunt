@@ -106,8 +106,11 @@ export default function IdentifySheet() {
           if (!regTouched.current) setReg(r.registration);
           showLookup(r.registration, 'ocr', my);
         })
-        .catch(() => {
-          if (my === session.current) setAuto({ state: 'none', message: 'Lecture automatique indisponible. Choisis le type ci-dessous.' });
+        .catch((e) => {
+          const why = (e instanceof Error ? e.message : String(e)).slice(0, 160);
+          if (my === session.current) setAuto({ state: 'none', message: `Lecture automatique indisponible. Choisis le type ci-dessous.
+
+Erreur : ${why}` });
         });
     } else {
       setAuto({ state: 'idle' });

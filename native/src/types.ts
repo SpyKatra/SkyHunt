@@ -21,6 +21,8 @@ export type Detection = {
   rotConf?: number[];
   /** Diagnostic : positions des deux pics du moiré (« Cb u,v u,v », cycles par carré de 128 px). */
   moirePeaks?: string;
+  /** Quarts de tour (sens horaire) qui remettent l'image du capteur à l'endroit. */
+  rot?: number;
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
   aspect: number;
   /** Durée totale de l'analyse (ms). */
@@ -75,6 +77,12 @@ export type Capture = {
   sharpness: number;
   brightness: number;
   moire?: number | null;
+  /** Diagnostic : pics du moiré en direct au déclenchement. */
+  moirePeaks?: string | null;
+  /** Diagnostic : moiré mesuré sur la photo en pleine résolution (pas encore utilisé pour valider). */
+  photoMoire?: number | null;
+  photoMoirePeaks?: string | null;
+  photoMoireInfo?: string | null;
   screenObject?: number | null;
   box: Box | null;
   thresholds: Thresholds | null;

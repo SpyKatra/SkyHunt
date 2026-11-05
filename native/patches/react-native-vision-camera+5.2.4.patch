@@ -1,0 +1,106 @@
+diff --git a/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/extensions/FocusTracker.kt b/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/extensions/FocusTracker.kt
+new file mode 100644
+index 0000000..a9aa098
+--- /dev/null
++++ b/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/extensions/FocusTracker.kt
+@@ -0,0 +1,26 @@
++package com.margelo.nitro.camera.extensions
++
++import android.hardware.camera2.CameraCaptureSession
++import android.hardware.camera2.CaptureRequest
++import android.hardware.camera2.CaptureResult
++import android.hardware.camera2.TotalCaptureResult
++
++/**
++ * SkyHunt (patch-package) : dernière distance de mise au point (LENS_FOCUS_DISTANCE, en dioptries = 1 / mètres)
++ * lue sur les images de l'aperçu. Sert à l'anti-triche « photo d'écran » : un écran est à moins d'un mètre.
++ */
++object FocusTracker {
++  @Volatile var diopters: Double = -1.0
++
++  val callback =
++    object : CameraCaptureSession.CaptureCallback() {
++      override fun onCaptureCompleted(
++        session: CameraCaptureSession,
++        request: CaptureRequest,
++        result: TotalCaptureResult,
++      ) {
++        val d = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
++        if (d != null) diopters = d.toDouble()
++      }
++    }
++}
+diff --git a/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/HybridCameraController.kt b/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/HybridCameraController.kt
+index 337601a..df50396 100644
+--- a/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/HybridCameraController.kt
++++ b/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/HybridCameraController.kt
+@@ -24,7 +24,10 @@ import com.margelo.nitro.camera.Variant_NullType_Double
+ import com.margelo.nitro.camera.WhiteBalanceGains
+ import com.margelo.nitro.camera.WhiteBalanceMode
+ import com.margelo.nitro.camera.WhiteBalanceTemperatureAndTint
++import android.hardware.camera2.CameraCharacteristics
++import com.margelo.nitro.camera.extensions.FocusTracker
+ import com.margelo.nitro.camera.extensions.await
++import com.margelo.nitro.camera.extensions.cameraCharacteristicsOrNull
+ import com.margelo.nitro.camera.extensions.converters.fromTorchState
+ import com.margelo.nitro.camera.extensions.converters.toMeteringMode
+ import com.margelo.nitro.camera.hybrids.inputs.HybridCameraDevice
+@@ -282,9 +285,17 @@ class HybridCameraController(
+     return Promise.resolved()
+   }
+ 
+-  // TODO: Once CameraX implements locking Focus to a custom lens position, implement this:
++  // SkyHunt (patch-package) : sur Android, distance de mise au point en dioptries (1 / mètres, 0 = infini),
++  // + 1000 × calibration (0 non calibrée, 1 approximative, 2 calibrée) ; -1 si inconnue.
+   override val lensPosition: Double
+-    get() = 0.0
++    get() {
++      val d = FocusTracker.diopters
++      if (d < 0) return -1.0
++      val cal =
++        camera.cameraInfo.cameraCharacteristicsOrNull
++          ?.get(CameraCharacteristics.LENS_INFO_FOCUS_DISTANCE_CALIBRATION) ?: 0
++      return d + 1000.0 * cal
++    }
+ 
+   override fun setFocusLocked(lensPosition: Double): Promise<Unit> {
+     throw Error(
+diff --git a/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/outputs/HybridPhotoOutput.kt b/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/outputs/HybridPhotoOutput.kt
+index a384e82..4ed9b83 100644
+--- a/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/outputs/HybridPhotoOutput.kt
++++ b/node_modules/react-native-vision-camera/android/src/main/java/com/margelo/nitro/camera/hybrids/outputs/HybridPhotoOutput.kt
+@@ -3,6 +3,8 @@ package com.margelo.nitro.camera.hybrids.outputs
+ import android.media.MediaActionSound
+ import android.os.SystemClock
+ import android.util.Log
++import androidx.camera.camera2.interop.Camera2Interop
++import androidx.camera.camera2.interop.ExperimentalCamera2Interop
+ import androidx.camera.core.CameraInfo
+ import androidx.camera.core.CameraSelector
+ import androidx.camera.core.ImageCapture
+@@ -25,6 +27,7 @@ import com.margelo.nitro.camera.extensions.converters.toFlashMode
+ import com.margelo.nitro.camera.extensions.converters.toOutputFormat
+ import com.margelo.nitro.camera.extensions.converters.toResolutionSelector
+ import com.margelo.nitro.camera.extensions.converters.toSize
++import com.margelo.nitro.camera.extensions.FocusTracker
+ import com.margelo.nitro.camera.extensions.fileExtension
+ import com.margelo.nitro.camera.extensions.fromSurfaceRotation
+ import com.margelo.nitro.camera.extensions.sortedByClosestTo
+@@ -73,6 +76,7 @@ class HybridPhotoOutput(
+     }
+   }
+ 
++  @androidx.annotation.OptIn(markerClass = [ExperimentalCamera2Interop::class])
+   override fun createUseCase(
+     mirrorMode: MirrorMode,
+     config: NativeCameraOutput.Config,
+@@ -100,6 +104,9 @@ class HybridPhotoOutput(
+           // Resolution
+           setResolutionSelector(resolutionSelector)
+ 
++          // SkyHunt : distance de mise au point de chaque image (voir FocusTracker)
++          Camera2Interop.Extender(this).setSessionCaptureCallback(FocusTracker.callback)
++
+           // CameraOrientation
+           setTargetRotation(outputOrientation.surfaceRotation)
+ 

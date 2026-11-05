@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
+import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
 import { takeCaptureToken } from './cloud';
 import { analyzePhoto, loadDetector, type PhotoAnalysis } from './photoAnalysis';
 import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SAFETY_TEXT, SAFETY_VERSION, SCREEN_CLASSES } from './shared';
@@ -15,7 +15,7 @@ import { C } from './theme';
 import type { Capture } from './types';
 import { Bar } from './ui';
 
-const APP_VERSION = '0.5';
+const APP_VERSION = '0.6';
 const SAFETY_KEY = 'skyhunt.safety';
 
 /** Consigne de sécurité, à accepter avant la première utilisation de la caméra (et à chaque nouvelle version). */
@@ -34,6 +34,22 @@ function useSafety() {
 }
 
 const USER_AGENT = `SkyHunt/${APP_VERSION} (${Platform.OS} ${Platform.Version}; ${String((Platform.constants as Record<string, unknown>).Model ?? '')})`;
+
+/**
+ * Distance de mise au point lisible (diagnostic anti-écran).
+ * Android (vision-camera patché) : dioptries (1 / mètres) + 1000 × calibration, -1 si inconnue.
+ * iPhone : position de l'objectif d'Apple, de 0 (le plus près) à 1 (le plus loin), pas une distance.
+ */
+function focusText(v: number | undefined): string {
+  if (v == null) return 'Mise au point : caméra pas prête';
+  if (Platform.OS === 'ios') return `Mise au point : objectif ${v.toFixed(3)} (0 = près, 1 = loin)`;
+  if (v < 0) return 'Mise au point : inconnue';
+  const cal = Math.floor(v / 1000);
+  const d = v - cal * 1000;
+  const calName = ['non calibrée', 'approximative', 'calibrée'][cal] ?? `?${cal}`;
+  const m = d > 0.001 ? `≈ ${(1 / d).toFixed(2)} m` : 'infini';
+  return `Mise au point : ${d.toFixed(3)} D ${m} (${calName})`;
+}
 
 export default function CameraScreen({ active }: { active: boolean }) {
   const { list, saveNew, identify, reveal, toast } = useApp();
@@ -74,6 +90,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const [camState, setCamState] = useState('démarrage…');
   const [camKey, setCamKey] = useState(0);
   const started = useRef(false);
+  const camRef = useRef<CameraRef>(null);
+  const [lastFocus, setLastFocus] = useState('');
   const onStarted = useCallback(() => { console.log('[SkyHunt] session démarrée'); started.current = true; setCamState('en marche'); }, []);
   const onStopped = useCallback(() => { console.log('[SkyHunt] session arrêtée'); started.current = false; setCamState('arrêtée'); }, []);
   const onInterrupted = useCallback((r: unknown) => setCamState(`interrompue (${String(r)})`), []);
@@ -184,6 +202,9 @@ export default function CameraScreen({ active }: { active: boolean }) {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setLastMsg(null);
     try {
+      // Distance de mise au point juste avant la photo (diagnostic anti-écran, version 0.6).
+      const focus = focusText(camRef.current?.controller?.lensPosition);
+      setLastFocus(focus);
       const photo = await photoOutput.capturePhotoToFile({ flashMode: 'off', enableShutterSound: false }, {});
       let pos = position.current;
       if (!pos) {
@@ -221,6 +242,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
         photoMoirePeaks: snapshot.moireAll.join(' / '),
         photoMoireInfo: snapshot.photoInfo,
         exif: snapshot.exif,
+        focus,
         screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },
@@ -305,6 +327,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
         {active && (
           <Camera
             key={camKey}
+            ref={camRef}
             style={StyleSheet.absoluteFill}
             device={device}
             isActive
@@ -342,6 +365,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
               <Text style={st.debugText}>Écran détecté : {d.screenObject ? `${SCREEN_CLASSES[d.screenClass] ?? 'écran'} ${Math.round(d.screenObject * 100)} %` : 'non'}</Text>
               {d.photoInfo ? <Text style={st.debugText}>{d.photoInfo}</Text> : null}
               <Text style={st.debugText}>{d.exif}</Text>
+              <Text style={st.debugText}>{lastFocus}</Text>
             </>
           ) : <Text style={st.debugText}>Prends une photo : ses mesures s’afficheront ici.</Text>}
           <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · zoom ×{factor.toFixed(1)} · {USER_AGENT}</Text>

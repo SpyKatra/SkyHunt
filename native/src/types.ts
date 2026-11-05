@@ -85,6 +85,8 @@ export type Capture = {
   photoMoireInfo?: string | null;
   /** Diagnostic : balises EXIF de la photo (distance du sujet, focale...). */
   exif?: string | null;
+  /** Diagnostic : distance de mise au point au déclenchement (voir focusText). */
+  focus?: string | null;
   screenObject?: number | null;
   box: Box | null;
   thresholds: Thresholds | null;

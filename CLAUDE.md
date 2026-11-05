@@ -54,7 +54,7 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 
 ## Décisions et contraintes à respecter
 
-- **Analyse après la photo** (décision de Spy, 2026-11-05) : l'app native n'analyse plus le flux vidéo en direct. Sur Samsung S23, ce flux (1440×1080, « binning ») arrivait à l'envers au modèle (Resizer : « left » tourné de 270° au lieu de 90°), contenait un faux motif de couleur de 4 px (pics de moiré toujours en (±32, 32)) et ne montrait pas la trame des écrans. La photo prise est analysée (`photoAnalysis.ts` : modèle sur 320×320, moiré sur 3 carrés de 128 px à pleine résolution, médiane), le verdict s'affiche tout de suite et la caméra reste ouverte. Seuil du moiré sur photo **à recalibrer** avec de vraies mesures. `useAircraftDetector.ts`, vision-camera-resizer et le frame processor sont à retirer à la prochaine version compilée.
+- **Analyse après la photo** (décision de Spy, 2026-11-05) : l'app native n'analyse plus le flux vidéo en direct. Sur Samsung S23, ce flux (1440×1080, « binning ») arrivait à l'envers au modèle (Resizer : « left » tourné de 270° au lieu de 90°), contenait un faux motif de couleur de 4 px (pics de moiré toujours en (±32, 32)) et ne montrait pas la trame des écrans. La photo prise est analysée (`photoAnalysis.ts` : modèle sur 320×320, moiré sur 3 carrés de 128 px à pleine résolution, médiane), le verdict s'affiche tout de suite et la caméra reste ouverte. Seuil du moiré sur photo **à recalibrer** avec de vraies mesures. `useAircraftDetector.ts`, vision-camera-resizer et son script de shader ont été retirés en 0.6.
 
 - **Familles et séries** (décision de Spy, 2026-11-04) : la carte, la rareté et le +5 restent par famille ; chaque série
   a un identifiant `famille.clé` (ex. `b737-800.900er`) **à ne jamais renommer** (enregistré dans les captures). Après un
@@ -97,8 +97,12 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2, fast-tflite 3.0.1.
   Pas de mise à jour sans tester sur un vrai téléphone. Frame processor = `useFrameOutput({ onFrame })` :
   appeler `frame.dispose()`, état entre images dans `globalThis` du worklet, retour à JS par `scheduleOnRN`.
-- Natif : le shader Vulkan du resizer est compilé sur EAS par `native/scripts/compile-resizer-shader.js`
-  (`eas-build-post-install`) car AGP 9 ne compile plus `src/main/shaders` ; ne pas retirer ce script.
+- Natif 0.6 : **patchs** (`native/patches/`, patch-package au `postinstall`) :
+  `expo-text-extractor` utilise ML Kit **embarqué** (`com.google.mlkit:text-recognition`) car la version des services
+  Google plantait sur Samsung S23 (« getClass() on a null object reference ») et ses erreurs donnent la pile ;
+  `react-native-vision-camera` (Android) lit `LENS_FOCUS_DISTANCE` (dioptries) et le renvoie dans
+  `controller.lensPosition` (+ 1000 × calibration, -1 inconnu) : diagnostic anti-écran (l'EXIF du S23 n'a pas la distance).
+  Mettre à jour ces paquets = refaire les patchs.
 - Natif : **ne pas lier la caméra à `AppState`** : sur Android, l'ouverture de la caméra fait passer l'app un instant en
   « background » → boucle de redémarrages (écran noir, lag, fermetures ; vu au logcat le 2026-11-04). Sur Android, prendre
   la caméra arrière par défaut (pas de filtre `physicalDevices`). Débogage : adb sans fil (voir `native/README.md`).

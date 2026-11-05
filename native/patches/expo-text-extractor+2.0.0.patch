@@ -1,0 +1,44 @@
+diff --git a/node_modules/expo-text-extractor/android/build.gradle b/node_modules/expo-text-extractor/android/build.gradle
+index 7f1375c..fadefac 100644
+--- a/node_modules/expo-text-extractor/android/build.gradle
++++ b/node_modules/expo-text-extractor/android/build.gradle
+@@ -41,6 +41,7 @@ android {
+     abortOnError false
+   }
+   dependencies {
+-    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.1'
++    // SkyHunt (patch-package) : ML Kit embarqué dans l'app (la version des services Google plantait sur Samsung S23)
++    implementation 'com.google.mlkit:text-recognition:16.0.1'
+   }
+ }
+diff --git a/node_modules/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt b/node_modules/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
+index 3ffdf31..23865e8 100644
+--- a/node_modules/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
++++ b/node_modules/expo-text-extractor/android/src/main/java/expo/modules/textextractor/ExpoTextExtractorModule.kt
+@@ -10,6 +10,12 @@ import expo.modules.kotlin.modules.Module
+ import expo.modules.kotlin.modules.ModuleDefinition
+ import java.io.File
+ 
++// SkyHunt (patch-package) : message d'erreur avec la classe et les 3 premières lignes de la pile (diagnostic).
++private fun describe(error: Throwable): String {
++  val where = error.stackTrace.take(3).joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" }
++  return "${error.javaClass.simpleName}: ${error.message ?: "?"} @ $where"
++}
++
+ class ExpoTextExtractorModule : Module() {
+   override fun definition() = ModuleDefinition {
+     Name("ExpoTextExtractor")
+@@ -41,10 +47,10 @@ class ExpoTextExtractorModule : Module() {
+             promise.resolve(recognizedTexts)
+           }
+           .addOnFailureListener { error ->
+-            promise.reject(CodedException("err", error))
++            promise.reject(CodedException("ML_KIT", describe(error), error))
+           }
+-      } catch (error: Exception) {
+-        promise.reject(CodedException("UNKNOWN_ERROR", error.message ?: "Unknown error", error))
++      } catch (error: Throwable) {
++        promise.reject(CodedException("UNKNOWN_ERROR", describe(error), error))
+       }
+     }
+   }

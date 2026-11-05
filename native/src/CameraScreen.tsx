@@ -320,6 +320,9 @@ export default function CameraScreen({ active }: { active: boolean }) {
           <Text style={st.debugText}>Confiance : {Math.round(detection.confidence * 100)} % (min {Math.round(thresholds.minConfidence * 100)})</Text>
           <Text style={st.debugText}>Taille : {Math.round(detection.sizeRatio * 100)} % (min {Math.round(thresholds.minSizeRatio * 100)})</Text>
           <Text style={st.debugText}>Netteté : {Math.round(detection.sharpness)} (min {thresholds.minSharpness})</Text>
+          <Text style={st.debugText}>
+            Confiance selon la rotation : {detection.rotConf ? detection.rotConf.map((c, i) => `${i * 90}° ${Math.round(c * 100)} %`).join(' · ') : 'mesure…'}
+          </Text>
           <Text style={st.debugText}>Luminosité : {Math.round(detection.brightness)}</Text>
           <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire})</Text>
           <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>

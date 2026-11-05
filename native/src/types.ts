@@ -17,6 +17,8 @@ export type Detection = {
   screenObject: number;
   /** Classe COCO de cet écran (-1 si aucun). */
   screenClass: number;
+  /** Diagnostic : confiance « avion » de l'image tournée de 0°, 90°, 180° et 270° (sens horaire), mesurée de temps en temps. */
+  rotConf?: number[];
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
   aspect: number;
   /** Durée totale de l'analyse (ms). */

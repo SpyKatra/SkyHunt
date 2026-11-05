@@ -43,7 +43,10 @@ export function useAircraftDetector() {
   const moireHist = useRef<number[]>([]);
   const lastMoire = useRef(0);
   const lastMoireMs = useRef(-1);
+  const lastRot = useRef<number[] | undefined>(undefined);
   const report = useMemo(() => (d: Detection) => {
+    if (d.rotConf) lastRot.current = d.rotConf;
+    else d.rotConf = lastRot.current;
     if (!d.found) { moireHist.current = []; lastMoire.current = 0; }
     else if (d.moire >= 0) lastMoire.current = d.moire = pushMedian(moireHist.current, d.moire);
     else d.moire = lastMoire.current;
@@ -162,11 +165,45 @@ export function useAircraftDetector() {
 
         // 2. Inférence. Sorties : boîtes [25×4], classes [25], scores [25], nombre [1].
         const out = tflite.runSync([input]);
-        const boxes = new Float32Array(out[0]);
-        const classes = new Float32Array(out[1]);
-        const scores = new Float32Array(out[2]);
+        // Copies : les analyses tournées du diagnostic peuvent réutiliser les tampons de sortie du modèle.
+        const boxes = new Float32Array(out[0]).slice();
+        const classes = new Float32Array(out[1]).slice();
+        const scores = new Float32Array(out[2]).slice();
         const count = Math.min(Math.round(new Float32Array(out[3])[0] ?? 0), scores.length);
         const detectMs = Date.now() - t0;
+
+        // Diagnostic (toutes les 10 analyses, ~2 s) : le modèle voit-il mieux l'avion si l'image est tournée ?
+        // Si 90°/180°/270° donne nettement plus que 0°, l'image arrive au modèle de travers.
+        let rotConf: number[] | undefined;
+        if (state.count % 10 === 0) {
+          const airplaneScore = (o: ArrayBuffer[]) => {
+            'worklet';
+            const cl = new Float32Array(o[1]);
+            const sc = new Float32Array(o[2]);
+            const nb = Math.min(Math.round(new Float32Array(o[3])[0] ?? 0), sc.length);
+            let m = 0;
+            for (let i = 0; i < nb; i++) if (Math.round(cl[i]) === AIRPLANE_CLASS && sc[i] > m) m = sc[i];
+            return m;
+          };
+          rotConf = [0]; // 0° = analyse principale (rempli plus bas avec bestScore)
+          const src = new Uint8Array(input);
+          for (let k = 1; k <= 3; k++) {
+            const dst = new Uint8Array(S * S * 3);
+            for (let y = 0; y < S; y++) {
+              for (let x = 0; x < S; x++) {
+                // Pixel (x, y) → position après rotation de k × 90° dans le sens horaire.
+                const nx = k === 1 ? S - 1 - y : k === 2 ? S - 1 - x : y;
+                const ny = k === 1 ? x : k === 2 ? S - 1 - y : S - 1 - x;
+                const si = (y * S + x) * 3;
+                const di = (ny * S + nx) * 3;
+                dst[di] = src[si];
+                dst[di + 1] = src[si + 1];
+                dst[di + 2] = src[si + 2];
+              }
+            }
+            rotConf.push(airplaneScore(tflite.runSync([dst.buffer as ArrayBuffer])));
+          }
+        }
 
         let best = -1;
         let bestScore = 0;
@@ -176,11 +213,12 @@ export function useAircraftDetector() {
             bestScore = scores[i];
           }
         }
+        if (rotConf) rotConf[0] = bestScore;
         if (best < 0) {
           scheduleOnRN(report, {
             found: false, confidence: 0, box: null, sizeRatio: 0,
             sharpness: 0, brightness: 0, moire: 0, screenObject: 0, screenClass: -1,
-            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1, frameInfo, cameraFps: state.fps,
+            aspect, inferenceMs: Date.now() - t0, detectMs, moireMs: -1, frameInfo, cameraFps: state.fps, rotConf,
           });
           return;
         }
@@ -255,6 +293,7 @@ export function useAircraftDetector() {
           moireMs,
           frameInfo,
           cameraFps: state.fps,
+          rotConf,
         });
       } finally {
         frame.dispose();

@@ -1,6 +1,6 @@
 // Règles du jeu : calcul des points, niveaux, succès et statistiques.
 // Formule du document : Score = (P_appareil + P_lieu) × Q × R + Bonus
-import { AIRCRAFT, RARITIES, getType, nearestAirport } from './catalog.js';
+import { AIRCRAFT, RARITIES, SERIES_BY_ID, getType, nearestAirport, seriesOf } from './catalog.js';
 
 // Points de lieu : calculés par le serveur selon la rareté du lieu (captures de tous les joueurs à moins
 // de 5 km avant celle-ci : aucune → 5, 1-9 → 3, 10-49 → 2, 50+ → 1), reçus dans `placePoints`.
@@ -8,6 +8,8 @@ import { AIRCRAFT, RARITIES, getType, nearestAirport } from './catalog.js';
 const PLACE_POINTS = 1;
 const REPEAT_FACTORS = [1, 0.5, 0.25, 0.1];
 const NEW_TYPE_BONUS = 5;
+// Nouvelle série (737-900ER après un 737-800…) d'une famille déjà capturée. Pas cumulé avec le bonus de nouveau type.
+const NEW_SERIES_BONUS = 2;
 
 /** Photo « excellente » : avion bien reconnu et assez grand. */
 export function isExcellent(c) {
@@ -37,6 +39,7 @@ export function recomputeAll(list) {
   const chrono = [...list].sort((a, b) => a.takenAt.localeCompare(b.takenAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const typeCount = {};
   const regs = new Set();
+  const seenSeries = new Set();
   const out = new Map();
 
   for (const c of chrono) {
@@ -58,17 +61,21 @@ export function recomputeAll(list) {
     const reg = normReg(c.registration);
     const regSeen = reg && regs.has(reg);
     const bonus = known && n === 0 ? NEW_TYPE_BONUS : 0;
+    // Série : seulement si elle appartient bien à la famille choisie.
+    const series = known ? seriesOf(type.id, c.seriesId) : null;
+    const seriesBonus = series && n > 0 && !seenSeries.has(series.id) ? NEW_SERIES_BONUS : 0;
 
     const place = Number.isFinite(c.placePoints) ? c.placePoints : PLACE_POINTS;
-    let points = Math.round((rarity.points + place) * Q * R) + bonus;
+    let points = Math.round((rarity.points + place) * Q * R) + bonus + seriesBonus;
     if (regSeen) points = 0;
 
     out.set(c.id, {
       ...c,
       points,
-      breakdown: { aircraft: rarity.points, place, Q, R, bonus, regSeen: !!regSeen, repeat: n },
+      breakdown: { aircraft: rarity.points, place, Q, R, bonus, seriesBonus, series: series ? series.name : null, regSeen: !!regSeen, repeat: n },
     });
     if (known) typeCount[type.id] = n + 1;
+    if (series) seenSeries.add(series.id);
     if (reg) regs.add(reg);
   }
   return list.map((c) => out.get(c.id));
@@ -106,6 +113,7 @@ export function levelFor(xp) {
 export function computeStats(list) {
   const valid = list.filter((c) => c.valid);
   const types = new Set(valid.filter((c) => c.typeId && c.typeId !== 'inconnu').map((c) => c.typeId));
+  const series = new Set(valid.map((c) => seriesOf(c.typeId, c.seriesId)?.id).filter(Boolean));
   const makers = new Set([...types].map((id) => getType(id).maker));
   const places = new Set(valid.map((c) => nearestAirport(c.latitude, c.longitude)?.code).filter(Boolean));
   const days = new Set(valid.map((c) => c.takenAt.slice(0, 10)));
@@ -124,6 +132,8 @@ export function computeStats(list) {
     unknown: valid.filter((c) => !c.typeId || c.typeId === 'inconnu').length,
     types: types.size,
     catalogSize: AIRCRAFT.length,
+    series: series.size,
+    seriesSize: Object.keys(SERIES_BY_ID).length,
     makers: makers.size,
     places: places.size,
     days: days.size,
@@ -155,6 +165,7 @@ export const ACHIEVEMENTS = [
   { id: 'fifty', icon: '🛬', title: 'Pilier du tarmac', desc: 'Valider 50 captures', test: (s) => s.valid >= 50, goal: (s) => [s.valid, 50] },
   { id: 'types5', icon: '🗂️', title: 'Petite flotte', desc: 'Collectionner 5 types différents', test: (s) => s.types >= 5, goal: (s) => [s.types, 5] },
   { id: 'types15', icon: '📚', title: 'Grande flotte', desc: 'Collectionner 15 types différents', test: (s) => s.types >= 15, goal: (s) => [s.types, 15] },
+  { id: 'series10', icon: '🔎', title: 'Œil d’expert', desc: 'Collectionner 10 séries différentes (737-800, A321neo…)', test: (s) => s.series >= 10, goal: (s) => [s.series, 10] },
   { id: 'makers3', icon: '🏭', title: 'Tour des constructeurs', desc: 'Capturer 3 constructeurs différents', test: (s) => s.makers >= 3, goal: (s) => [s.makers, 3] },
   { id: 'rare', icon: '💎', title: 'Œil de lynx', desc: 'Capturer un appareil rare', test: (s) => s.byRarity.rare + s.byRarity.epique + s.byRarity.legendaire >= 1 },
   { id: 'epic', icon: '🔮', title: 'Moment épique', desc: 'Capturer un appareil épique', test: (s) => s.byRarity.epique + s.byRarity.legendaire >= 1 },

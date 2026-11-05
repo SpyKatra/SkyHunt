@@ -68,6 +68,12 @@ const CDG = [49.0097, 2.5479];
       `${types && types.length} / ${AIRCRAFT.length}${diff.length ? ` ; différents : ${diff.join(', ')}` : ''}`);
     const rdiff = Object.entries(RARITIES).filter(([id, r]) => !(rar || []).some((x) => x.id === id && x.points === r.points));
     check('raretés du serveur = web/catalog.js', rdiff.length === 0, rdiff.map(([id]) => id).join(', '));
+    const { data: ser } = await A.sb.from('aircraft_series').select('id, type_id');
+    const all = AIRCRAFT.flatMap((a) => a.series.map((s) => [s.id, a.id]));
+    const smap = Object.fromEntries((ser || []).map((s) => [s.id, s.type_id]));
+    const sdiff = all.filter(([id, t]) => smap[id] !== t).map(([id]) => id);
+    check('séries du serveur = web/fleet.js', ser && ser.length === all.length && sdiff.length === 0,
+      `${ser && ser.length} / ${all.length}${sdiff.length ? ` ; différentes : ${sdiff.slice(0, 10).join(', ')}` : ''}`);
   }
 
   // --- Captures (heures croissantes ; jour 0 = janvier, jours 25+ = février)
@@ -92,6 +98,11 @@ const CDG = [49.0097, 2.5479];
     ],
     C: [
       cap('c1', 6, CDG, { type_id: 'a220-300' }),                          // lieu découvert : 5
+      cap('c2', 7, CDG, { type_id: 'b737-800', series_id: 'b737-800.800' }),   // nouveau type : +5, pas de +2
+      cap('c3', 8, CDG, { type_id: 'b737-800', series_id: 'b737-800.900er' }), // nouvelle série d'un type connu : +2
+      cap('c4', 9, CDG, { type_id: 'b737-800', series_id: 'b737-800.900er' }), // même série : rien
+      cap('c5', 10, CDG, { type_id: 'b737-800', series_id: 'a320.neo' }),      // série d'une autre famille : ignorée
+      cap('c6', 11, CDG, { type_id: 'a320', series_id: 'a320.neo' }),          // nouveau type : +5 seulement
     ],
   };
   for (const [who, P] of [['A', A], ['B', B], ['C', C]]) {
@@ -106,16 +117,18 @@ const CDG = [49.0097, 2.5479];
     { stdio: 'pipe' });
 
   // --- Points du serveur = recomputeAll (avec les points de lieu du serveur)
+  const localOf = {};
   async function compare(who, P) {
     const { data, error } = await P.sb.rpc('my_scores');
     check(`my_scores de ${who}`, !error && data && data.length === caps[who].length, error ? error.message : `${data && data.length} lignes`);
     if (!data) return {};
     const server = Object.fromEntries(data.map((r) => [r.client_id, r]));
     const local = recomputeAll(caps[who].map((c) => ({
-      id: c.client_id, takenAt: c.taken_at, valid: c.valid, typeId: c.type_id, registration: c.registration || null,
+      id: c.client_id, takenAt: c.taken_at, valid: c.valid, typeId: c.type_id, seriesId: c.series_id || null, registration: c.registration || null,
       confidence: c.confidence, sizeRatio: c.size_ratio, placePoints: server[c.client_id] && server[c.client_id].place_points,
       militaryAckAt: c.military_ack_at || null, duplicate: server[c.client_id] && server[c.client_id].duplicate,
     })));
+    for (const l of local) localOf[l.id] = l;
     const diff = local.filter((l) => server[l.id].points !== l.points).map((l) => `${l.id} serveur ${server[l.id].points} / app ${l.points}`);
     check(`points de ${who} : serveur = web/game.js`, diff.length === 0, diff.join(' ; '));
     return server;
@@ -150,6 +163,13 @@ const CDG = [49.0097, 2.5479];
   const badA = Object.entries(expectA).filter(([k, v]) => !sA[k] || sA[k].points !== v).map(([k, v]) => `${k} ${sA[k] && sA[k].points} ≠ ${v}`);
   check('points de A conformes au calcul à la main', badA.length === 0, badA.join(' ; '));
   const totA = Object.values(expectA).reduce((s, v) => s + v, 0);
+
+  // --- Séries : +2 seulement pour une nouvelle série d'une famille déjà capturée (c3)
+  const sb = ['c2', 'c3', 'c4', 'c5', 'c6'].map((k) => (localOf[k] && localOf[k].breakdown.seriesBonus) || 0);
+  check('bonus de série : seulement c3 (+2)', sb.join() === '0,2,0,0,0', sb.join());
+  check('série d\'une autre famille ignorée', localOf.c5 && !localOf.c5.breakdown.series, localOf.c5 && localOf.c5.breakdown.series);
+  // c3 et c4 : même type, même lieu (3 points), R 0,5 puis 0,25 : la différence vient du +2.
+  check('c3 = (2+3)×0,5 + 2 sur le serveur', sC.c3 && sC.c3.points === Math.round(5 * 0.5) + 2, sC.c3 && sC.c3.points);
 
   // --- Classements
   const rows = async (P, args) => {

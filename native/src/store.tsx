@@ -82,10 +82,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toastTimer.current = setTimeout(() => setToastText(null), 2600);
   }, []);
 
-  const ownedTypes = useCallback(
-    () => new Set(listRef.current.filter((c) => c.valid && c.typeId && c.typeId !== 'inconnu').map((c) => c.typeId as string)),
-    [],
-  );
+  // Types et séries déjà dans la flotte (« b737-800 », « b737-800.900er »).
+  const ownedTypes = useCallback(() => {
+    const own = new Set<string>();
+    for (const c of listRef.current) {
+      if (!c.valid || !c.typeId || c.typeId === 'inconnu') continue;
+      own.add(c.typeId);
+      if (c.seriesId) own.add(c.seriesId);
+    }
+    return own;
+  }, []);
 
   /** Enregistre une nouvelle capture et renvoie ce qu'elle a débloqué (niveau, succès). */
   const saveNew = useCallback(async (record: Capture): Promise<SaveResult> => {

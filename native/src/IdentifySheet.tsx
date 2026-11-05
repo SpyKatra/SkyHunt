@@ -10,7 +10,7 @@ import { cloudState } from './cloud';
 import { readRegistration } from './ocr';
 import {
   acceptMilitary, AIRCRAFT, CATEGORIES, getType, lookupRegistration, MILITARY_FORBIDDEN_TEXT, MILITARY_WARNING,
-  militaryGate, normalizeRegistration, notFoundMessage, RARITIES, REGISTRY_NAMES, type Lookup,
+  militaryGate, normalizeRegistration, notFoundMessage, RARITIES, REGISTRY_NAMES, seriesOf, type Lookup,
 } from './shared';
 import type { Capture } from './types';
 import { useApp } from './store';
@@ -66,6 +66,7 @@ export default function IdentifySheet() {
   const [query, setQuery] = useState('');
   const [reg, setReg] = useState('');
   const [auto, setAuto] = useState<Auto>({ state: 'idle' });
+  const [family, setFamily] = useState<string | null>(null); // famille choisie, en attente de la série
   const session = useRef(0);
   const regTouched = useRef(false);
   const owned = useMemo(() => (capture ? ownedTypes() : new Set<string>()), [capture, ownedTypes]);
@@ -82,6 +83,7 @@ export default function IdentifySheet() {
     if (!capture) return;
     const my = ++session.current;
     regTouched.current = false;
+    setFamily(null);
     setQuery('');
     setReg(capture.registration || '');
     if (capture.registration) {
@@ -119,7 +121,7 @@ export default function IdentifySheet() {
   }, [reg]);
 
   const checking = useRef(false);
-  async function finish(typeId: string) {
+  async function finish(typeId: string, seriesId: string | null = null) {
     if (!identifyReq || checking.current) return;
     let militaryAckAt = identifyReq.capture.militaryAckAt ?? null;
     if (getType(typeId).category === 'militaire') {
@@ -130,8 +132,10 @@ export default function IdentifySheet() {
     session.current++;
     const typed = normalizeRegistration(reg) || null;
     const fromAuto = auto.state === 'found' && typed === auto.registration;
+    setFamily(null);
     identifyReq.resolve({
       typeId,
+      seriesId: typeId === 'inconnu' ? null : seriesId,
       registration: typed,
       registrationSource: typed ? (fromAuto && auto.state === 'found' ? auto.source : 'manuel') : null,
       registryModel: fromAuto && auto.state === 'found' && auto.lookup ? auto.lookup.label : null,
@@ -140,14 +144,20 @@ export default function IdentifySheet() {
   }
 
   const suggested = auto.state === 'found' && auto.lookup?.typeId ? auto.lookup.typeId : null;
+  const suggestedSeries = auto.state === 'found' && auto.lookup?.seriesId ? auto.lookup.seriesId : null;
   const nq = norm(query);
-  const matches = AIRCRAFT.filter((a) => !nq || norm(`${a.name} ${a.maker} ${a.id}`).includes(nq));
+  // La recherche porte aussi sur les séries (« 900ER », « Skyhawk », « MAX 8 »…).
+  const seriesHit = (a: (typeof AIRCRAFT)[number]) => (nq ? a.series.filter((s) => norm(s.name).includes(nq)) : []);
+  const matches = AIRCRAFT.filter((a) => !nq || norm(`${a.name} ${a.maker} ${a.id}`).includes(nq) || seriesHit(a).length > 0);
+  // Famille avec séries : deuxième étape « Quelle série ? ».
+  const choose = (id: string) => (getType(id).series.length ? setFamily(id) : finish(id));
+  const fam = family ? getType(family) : null;
 
   return (
     <Sheet visible={!!capture} title="Quel avion as-tu capturé ?" onClose={() => finish('inconnu')}>
       {capture?.photoUri ? <Image source={{ uri: capture.photoUri }} style={st.photo} resizeMode="cover" /> : null}
 
-      <AutoBox auto={auto} onConfirm={(id) => finish(id)} />
+      <AutoBox auto={auto} onConfirm={(id, sid) => (sid || !getType(id).series.length ? finish(id, sid) : setFamily(id))} />
 
       <TextInput
         style={st.input}
@@ -168,8 +178,26 @@ export default function IdentifySheet() {
         autoCorrect={false}
       />
 
-      {matches.length === 0 && <Text style={st.empty}>Aucun type trouvé. Choisis « Je ne sais pas ».</Text>}
-      {Object.entries(CATEGORIES).map(([cat, label]) => {
+      {fam ? (
+        <View>
+          <Pressable onPress={() => setFamily(null)} style={{ paddingVertical: 10 }}><Text style={st.back}>← Toutes les familles</Text></Pressable>
+          <Text style={st.cat}>{fam.name} · quelle série ?</Text>
+          <Text style={st.rowMaker}>Une nouvelle série d’une famille déjà dans ta flotte rapporte +2.</Text>
+          {fam.series.map((s) => (
+            <Pressable key={s.id} onPress={() => finish(fam.id, s.id)} style={({ pressed }) => [st.row, suggestedSeries === s.id && st.rowSugg, pressed && { opacity: 0.7 }, { marginTop: 6 }]}>
+              <Text style={[st.rowName, { flex: 1 }]}>{s.name}{owned.has(s.id) ? <Text style={st.owned}>  ✓ déjà capturée</Text> : null}</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => finish(fam.id, null)} style={({ pressed }) => [st.row, pressed && { opacity: 0.7 }, { marginTop: 6 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={st.rowName}>Je ne connais pas la série</Text>
+              <Text style={st.rowMaker}>Tu pourras la préciser plus tard (Changer le type)</Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
+      {!fam && matches.length === 0 && <Text style={st.empty}>Aucun type trouvé. Choisis « Je ne sais pas ».</Text>}
+      {!fam && Object.entries(CATEGORIES).map(([cat, label]) => {
         const items = matches.filter((a) => a.category === cat);
         if (!items.length) return null;
         return (
@@ -177,11 +205,12 @@ export default function IdentifySheet() {
             <Text style={st.cat}>{label}</Text>
             {items.map((a) => {
               const r = RARITIES[a.rarity];
+              const hits = seriesHit(a).slice(0, 3).map((s) => s.name).join(', ');
               return (
-                <Pressable key={a.id} onPress={() => finish(a.id)} style={({ pressed }) => [st.row, suggested === a.id && st.rowSugg, pressed && { opacity: 0.7 }]}>
+                <Pressable key={a.id} onPress={() => choose(a.id)} style={({ pressed }) => [st.row, suggested === a.id && st.rowSugg, pressed && { opacity: 0.7 }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={st.rowName}>{a.name}{owned.has(a.id) ? <Text style={st.owned}>  ✓ déjà dans ta flotte</Text> : null}</Text>
-                    <Text style={st.rowMaker}>{a.maker}</Text>
+                    <Text style={st.rowMaker}>{a.maker}{a.series.length ? ` · ${a.series.length} séries` : ''}{hits ? ` · ${hits}` : ''}</Text>
                   </View>
                   <View style={[st.rar, { backgroundColor: r.color }]}><Text style={st.rarText}>{r.label} · {r.points}</Text></View>
                 </Pressable>
@@ -196,7 +225,7 @@ export default function IdentifySheet() {
   );
 }
 
-function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) => void }) {
+function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string, seriesId: string | null) => void }) {
   if (auto.state === 'idle') return null;
   if (auto.state === 'reading') {
     return (
@@ -219,7 +248,8 @@ function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) 
           <Text style={st.reg}>{auto.registration}</Text>
           <Text style={st.model}>{lk.label}</Text>
           <Text style={st.src}>{srcLabel} · {REGISTRY_NAMES[lk.registry]} du {lk.date}</Text>
-          <Btn kind="ok" label={`Confirmer : ${t.name} · ${r.label}`} onPress={() => onConfirm(lk.typeId!)} style={{ marginTop: 10 }} />
+          <Btn kind="ok" label={`Confirmer : ${seriesOf(t.id, lk.seriesId) ? `${seriesOf(t.id, lk.seriesId)!.name} (${t.name})` : t.name} · ${r.label}`}
+            onPress={() => onConfirm(lk.typeId!, seriesOf(t.id, lk.seriesId)?.id ?? null)} style={{ marginTop: 10 }} />
         </View>
       </View>
     );
@@ -252,6 +282,7 @@ const st = StyleSheet.create({
   cat: { color: C.muted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 10, padding: 12, marginBottom: 6 },
   rowSugg: { borderWidth: 2, borderColor: C.ok },
+  back: { color: C.accent, fontWeight: '700', fontSize: 15 },
   rowName: { color: C.text, fontSize: 15, fontWeight: '700' },
   rowMaker: { color: C.muted, fontSize: 12, marginTop: 2 },
   owned: { color: C.ok, fontSize: 11, fontWeight: '600' },

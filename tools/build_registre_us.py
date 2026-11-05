@@ -17,7 +17,7 @@ Format (compact : ≈ 250 000 avions) :
 import collections, csv, datetime, glob, json, os, sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from build_registre import type_for  # noqa: E402  (mêmes règles que le Canada)
+from build_registre import norm_model, type_for  # noqa: E402  (mêmes règles que le Canada)
 
 AIRPLANES = {'4', '5'}  # FAA « TYPE AIRCRAFT » : 4 = Fixed wing single engine, 5 = Fixed wing multi engine
 
@@ -47,7 +47,8 @@ def title(make):
 def main(folder):
     ref = {}
     for r in rows(find(folder, 'ACFTREF.TXT')):
-        make, model = clean(r.get('MFR')), clean(r.get('MODEL'))
+        make = clean(r.get('MFR'))
+        model = norm_model(make, clean(r.get('MODEL')))
         # Appareil non certifié (construction amateur, BUILD-CERT-IND 1) : le « constructeur » est souvent le nom
         # d'une personne. On ne le garde pas (vie privée) ; aucun type SkyHunt n'est de toute façon concerné.
         if r.get('BUILD-CERT-IND', '').strip() == '1':

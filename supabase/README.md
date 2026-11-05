@@ -10,6 +10,7 @@
 | `migrations/20261105120000_amis.sql` | Amis par code ami fixe, demandes à accepter / refuser, relance 48 h, classement entre amis |
 | `migrations/20261105130000_profil_fige.sql` | Pseudo et pays fixés à la création |
 | `migrations/20261106120000_anti_triche.sql` | Jetons de capture, photos en double, avertissement militaire (voir « Anti-triche ») |
+| `migrations/20261107120000_series.sql` | Séries d'avions (`aircraft_series`, `captures.series_id`), catalogue de 239 familles, +2 par nouvelle série |
 | `functions/photo-hash/` | Fonction Edge : empreinte de chaque photo envoyée (anti-doublons) |
 | `seed.sql` | Base **locale** seulement : la fonction Edge locale au lieu de celle en ligne |
 | `templates/code.html` | Courriel « Ton code SkyHunt » (code à 6 chiffres) |
@@ -35,7 +36,9 @@
   `web/game.js` ; `tests/leaderboard.js` vérifie que serveur et app donnent les mêmes points.
 - **Points de lieu** : captures valides de tous les joueurs à moins de 5 km, faites avant celle-ci :
   aucune → 5, 1 à 9 → 3, 10 à 49 → 2, 50 et plus → 1.
-- **Catalogue** : le serveur a sa copie des raretés. Après un ajout dans `web/catalog.js` :
+- **Séries** : +2 pour la première capture d'une série (`series_id`) d'une famille déjà capturée ; une série d'une autre
+  famille est ignorée (jointure sur `aircraft_series`).
+- **Catalogue** : le serveur a sa copie des raretés, des types et des séries. Après un ajout dans `web/fleet.js` :
   `node tools/sql_catalogue.mjs > supabase/migrations/<date>_catalogue.sql` (nouvelle migration).
 
 ## Amis

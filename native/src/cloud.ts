@@ -420,6 +420,7 @@ async function fetchPhoto(id: string, path: string): Promise<string | null> {
 const isoOrNull = (v: any) => (v ? new Date(v).toISOString() : null);
 const ID_FIELDS: [keyof Capture, string, ((v: any) => any)?][] = [
   ['typeId', 'type_id'],
+  ['seriesId', 'series_id'],
   ['registration', 'registration'],
   ['registrationSource', 'registration_source'],
   ['registryModel', 'registry_model'],
@@ -450,6 +451,7 @@ function toRow(c: Capture, uid: string, photoPath: string | null) {
     photo_path: photoPath,
     user_agent: c.userAgent,
     type_id: c.typeId ?? null,
+    series_id: c.seriesId ?? null,
     registration: c.registration ?? null,
     registration_source: c.registrationSource ?? null,
     registry_model: c.registryModel ?? null,
@@ -480,6 +482,7 @@ function fromRow(r: Row, uid: string): Capture {
     valid: r.valid,
     reasons: r.reasons || [],
     typeId: r.type_id,
+    seriesId: r.series_id ?? null,
     registration: r.registration,
     registrationSource: r.registration_source,
     registryModel: r.registry_model,

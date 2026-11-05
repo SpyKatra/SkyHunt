@@ -3,7 +3,7 @@
 // 2. Si c'est une marque canadienne (C-) ou américaine (N), le registre de Transport Canada ou de la FAA
 //    donne le modèle exact.
 // 3. Le joueur confirme d'une touche, ou choisit lui-même dans le catalogue.
-import { AIRCRAFT, CATEGORIES, RARITIES, getType } from './catalog.js';
+import { AIRCRAFT, CATEGORIES, RARITIES, getType, seriesOf } from './catalog.js';
 import { readRegistration } from './ocr.js';
 import { REGISTRY_NAMES, lookupRegistration, normalizeRegistration, notFoundMessage } from './registry.js';
 import { cloudState } from './cloud.js';
@@ -16,6 +16,7 @@ let session = 0;       // ignore les résultats d'une fiche précédente
 let auto = null;       // { registration, source, lookup }
 let regTouched = false;
 let current = null;    // capture en cours d'identification
+let family = null;     // famille choisie, en attente du choix de la série
 
 /** Pays du joueur : celui du profil, sinon la région de la langue du navigateur (fr-CA → CA). */
 function playerCountry() {
@@ -26,12 +27,14 @@ function playerCountry() {
 }
 
 /**
- * Ouvre la fiche et renvoie { typeId, registration, registrationSource, registryModel, militaryAckAt }.
+ * Ouvre la fiche et renvoie { typeId, seriesId, registration, registrationSource, registryModel, militaryAckAt }.
+ * owned : types et séries déjà dans la flotte (identifiants « famille » et « famille.série »).
  * typeId = 'inconnu' si le joueur ne sait pas. Un appareil militaire demande d'abord d'accepter l'avertissement.
  */
 export function identify(capture, owned, { autoRead = true } = {}) {
   ownedTypes = owned;
   current = capture;
+  family = null;
   const my = ++session;
   auto = null;
   regTouched = false;
@@ -81,11 +84,13 @@ async function showLookup(reg, source, my) {
   if (lookup && lookup.typeId) {
     const t = getType(lookup.typeId);
     const r = RARITIES[t.rarity];
+    const s = seriesOf(t.id, lookup.seriesId);
     setAuto(`<div class="reg">${esc(norm)}</div>
       <div class="model">${esc(lookup.label)}</div>
       <div class="src">${srcLabel} · ${REGISTRY_NAMES[lookup.registry]} du ${esc(lookup.date)}</div>
-      <button class="confirm" id="auto-confirm">Confirmer : ${esc(t.name)} · ${r.label}</button>`, 'found');
-    $('auto-confirm').onclick = () => finish(lookup.typeId);
+      <button class="confirm" id="auto-confirm">Confirmer : ${esc(s ? `${s.name} (${t.name})` : t.name)} · ${r.label}</button>`, 'found');
+    // Série reconnue : confirmée d'une touche ; sinon le joueur la choisit (famille avec séries).
+    $('auto-confirm').onclick = () => (s || !t.series.length ? finish(t.id, s ? s.id : null) : pickFamily(t.id));
     markSuggested(lookup.typeId);
   } else if (lookup) {
     setAuto(`<div class="reg">${esc(norm)}</div>
@@ -122,7 +127,15 @@ async function militaryAck() {
   return ok ? acceptMilitary() : null;
 }
 
-async function finish(typeId) {
+/** Famille avec séries : deuxième étape « Quelle série ? ». */
+function pickFamily(typeId) {
+  family = typeId;
+  $('identify-search').value = '';
+  renderList('');
+  $('identify-list').scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+async function finish(typeId, seriesId = null) {
   let militaryAckAt = (current && current.militaryAckAt) || null;
   if (getType(typeId).category === 'militaire') {
     militaryAckAt = await militaryAck();
@@ -137,6 +150,7 @@ async function finish(typeId) {
   if (r) {
     r({
       typeId,
+      seriesId: typeId === 'inconnu' ? null : seriesId,
       registration: typed,
       registrationSource: typed ? (fromAuto ? auto.source : 'manuel') : null,
       registryModel: fromAuto && auto.lookup ? auto.lookup.label : null,
@@ -149,9 +163,29 @@ function norm(s) {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
+function renderSeries() {
+  const t = getType(family);
+  const r = RARITIES[t.rarity];
+  const sugg = auto && auto.lookup && auto.lookup.typeId === t.id ? auto.lookup.seriesId : null;
+  let html = `<button class="back-row" data-back="1">← Toutes les familles</button>
+    <h4>${esc(t.name)} · quelle série ?</h4>
+    <p class="series-note">Une nouvelle série d’une famille déjà dans ta flotte rapporte +2.</p>`;
+  for (const s of t.series) {
+    html += `<button class="type-row${s.id === sugg ? ' suggested' : ''}" data-series="${s.id}">
+      <span>${esc(s.name)}${ownedTypes.has(s.id) ? '<span class="owned">✓ déjà capturée</span>' : ''}</span>
+      <span class="rar" style="background:${r.color}">${r.label}</span>
+    </button>`;
+  }
+  html += `<button class="type-row" data-series=""><span>Je ne connais pas la série<small>Tu pourras la préciser plus tard (Changer le type)</small></span></button>`;
+  $('identify-list').innerHTML = html;
+}
+
 function renderList(q) {
+  if (family) { renderSeries(); return; }
   const nq = norm(q);
-  const matches = AIRCRAFT.filter((a) => !nq || norm(`${a.name} ${a.maker} ${a.id}`).includes(nq));
+  // La recherche porte aussi sur les séries (« 900ER », « Skyhawk », « MAX 8 »…).
+  const seriesHit = (a) => (nq ? a.series.filter((s) => norm(s.name).includes(nq)) : []);
+  const matches = AIRCRAFT.filter((a) => !nq || norm(`${a.name} ${a.maker} ${a.id}`).includes(nq) || seriesHit(a).length);
   const box = $('identify-list');
   if (!matches.length) {
     box.innerHTML = '<p class="empty" style="padding:20px">Aucun type trouvé. Choisis « Je ne sais pas ».</p>';
@@ -165,8 +199,10 @@ function renderList(q) {
     for (const a of items) {
       const r = RARITIES[a.rarity];
       const sugg = auto && auto.lookup && auto.lookup.typeId === a.id ? ' suggested' : '';
+      const hits = seriesHit(a).slice(0, 3).map((s) => s.name).join(', ');
+      const n = a.series.length ? ` · ${a.series.length} séries` : '';
       html += `<button class="type-row${sugg}" data-type="${a.id}">
-        <span>${esc(a.name)}${ownedTypes.has(a.id) ? '<span class="owned">✓ déjà dans ta flotte</span>' : ''}<small>${esc(a.maker)}</small></span>
+        <span>${esc(a.name)}${ownedTypes.has(a.id) ? '<span class="owned">✓ déjà dans ta flotte</span>' : ''}<small>${esc(a.maker)}${n}${hits ? ` · ${esc(hits)}` : ''}</small></span>
         <span class="rar" style="background:${r.color}">${r.label} · ${r.points}</span>
       </button>`;
     }
@@ -176,7 +212,7 @@ function renderList(q) {
 
 let regTimer;
 export function initIdentify() {
-  $('identify-search').addEventListener('input', (e) => renderList(e.target.value));
+  $('identify-search').addEventListener('input', (e) => { family = null; renderList(e.target.value); });
   $('identify-reg').addEventListener('input', (e) => {
     regTouched = true;
     clearTimeout(regTimer);
@@ -187,8 +223,13 @@ export function initIdentify() {
     }, 350);
   });
   $('identify-list').addEventListener('click', (e) => {
+    if (e.target.closest('[data-back]')) { family = null; renderList($('identify-search').value); return; }
+    const sRow = e.target.closest('[data-series]');
+    if (sRow) { finish(family, sRow.dataset.series || null); return; }
     const row = e.target.closest('[data-type]');
-    if (row) finish(row.dataset.type);
+    if (!row) return;
+    if (getType(row.dataset.type).series.length) pickFamily(row.dataset.type);
+    else finish(row.dataset.type);
   });
   $('identify-unknown').addEventListener('click', () => finish('inconnu'));
   document.querySelector('[data-close="identify"]').addEventListener('click', () => finish('inconnu'));

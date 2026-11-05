@@ -49,8 +49,15 @@ function updateBadges() {
   $('hud-xp').style.width = `${Math.round(lv.progress * 100)}%`;
 }
 
+/** Types et séries déjà dans la flotte (« b737-800 », « b737-800.900er »). */
 function ownedTypes() {
-  return new Set(state.list.filter((c) => c.valid && c.typeId && c.typeId !== 'inconnu').map((c) => c.typeId));
+  const own = new Set();
+  for (const c of state.list) {
+    if (!c.valid || !c.typeId || c.typeId === 'inconnu') continue;
+    own.add(c.typeId);
+    if (c.seriesId) own.add(c.seriesId);
+  }
+  return own;
 }
 
 /** Enregistre un changement et renvoie ce qu'il a débloqué (niveau, succès). */

@@ -77,6 +77,8 @@ export type Capture = {
   valid: boolean;
   reasons: string[];
   typeId: string | null;
+  /** Série précise de la famille (« b737-800.900er »), facultative. */
+  seriesId?: string | null;
   registration: string | null;
   registrationSource: string | null;
   registryModel: string | null;
@@ -107,6 +109,9 @@ export type Breakdown = {
   Q: number;
   R: number;
   bonus: number;
+  /** Nouvelle série d'une famille déjà capturée (+2). */
+  seriesBonus?: number;
+  series?: string | null;
   regSeen: boolean;
   repeat: number;
 };
@@ -125,6 +130,7 @@ export type Scored = Capture & { points: number; breakdown: Breakdown | null };
 
 export type Identification = {
   typeId: string;
+  seriesId?: string | null;
   registration: string | null;
   registrationSource: string | null;
   registryModel: string | null;

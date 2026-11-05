@@ -12,12 +12,16 @@ import type { CheckResult, Detection, Scored, Capture, Thresholds } from './type
 
 export type RarityKey = 'commun' | 'peuCommun' | 'rare' | 'epique' | 'legendaire';
 export type Rarity = { label: string; points: number; color: string; glow: string; order: number };
-export type AircraftType = { id: string; name: string; maker: string; category: string | null; rarity: RarityKey };
+export type Series = { id: string; name: string; rule: RegExp | null };
+export type AircraftType = { id: string; name: string; maker: string; category: string | null; rarity: RarityKey; series: Series[] };
 
 export const RARITIES = catalog.RARITIES as Record<RarityKey, Rarity>;
 export const CATEGORIES = catalog.CATEGORIES as Record<string, string>;
 export const AIRCRAFT = catalog.AIRCRAFT as AircraftType[];
 export const getType = catalog.getType as (id: string | null | undefined) => AircraftType;
+export const seriesOf = catalog.seriesOf as (typeId: string | null | undefined, seriesId: string | null | undefined) => (Series & { typeId: string }) | null;
+export const matchSeries = catalog.matchSeries as (typeId: string, model: string) => string | null;
+export const cardName = catalog.cardName as (c: { typeId?: string | null; seriesId?: string | null }) => string;
 export const nearestAirport = catalog.nearestAirport as (lat: number | null, lon: number | null) =>
   { code: string; name: string; km: number } | null;
 
@@ -52,7 +56,7 @@ export type Level = { level: number; title: string; floor: number; next: number 
 export const levelFor = game.levelFor as (xp: number) => Level;
 
 export type Stats = {
-  xp: number; total: number; valid: number; refused: number; unknown: number; types: number; catalogSize: number;
+  xp: number; total: number; valid: number; refused: number; unknown: number; types: number; catalogSize: number; series: number; seriesSize: number;
   makers: number; places: number; days: number; streak: number; excellent: number;
   byRarity: Record<RarityKey, number>; typesByRarity: Record<RarityKey, number>; best: Scored | null; successRate: number;
 };
@@ -63,7 +67,7 @@ export const achievementState = game.achievementState as (s: Stats) => Achieveme
 
 export type RegistryDb = { date: string; source: string; models: [string, string, string | null][]; marks: Record<string, number> };
 export type RegistryId = 'ca' | 'us';
-export type Lookup = { registration: string; make: string; model: string; label: string; typeId: string | null; date: string; registry: RegistryId };
+export type Lookup = { registration: string; make: string; model: string; label: string; typeId: string | null; seriesId: string | null; date: string; registry: RegistryId };
 export type UsRegistryDb = { date: string; source: string; models: [string, string, string | null][]; marks: string[] };
 export const setUsRegistrySource = registry.setUsRegistrySource as (fn: () => Promise<UsRegistryDb | null> | UsRegistryDb | null) => void;
 export const REGISTRY_NAMES = registry.REGISTRY_NAMES as Record<RegistryId, string>;

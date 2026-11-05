@@ -53,6 +53,7 @@ export default function RevealModal() {
             <Text style={st.points}>+{c.points} pts</Text>
             {t.id === 'inconnu' && <Pill text="Avion mystère : identifie-le plus tard depuis tes cartes pour gagner plus de points." />}
             {t.id !== 'inconnu' && c.breakdown?.bonus ? <Pill color={C.ok} text={`Nouveau type : ${t.name} rejoint ta flotte !`} /> : null}
+            {t.id !== 'inconnu' && !c.breakdown?.bonus && c.breakdown?.seriesBonus ? <Pill color={C.ok} text={`Nouvelle série : ${c.breakdown.series}`} /> : null}
             {extras.levelUp && <Pill color={C.gold} text={`Niveau ${extras.levelUp.level} atteint : ${extras.levelUp.title}`} />}
             {extras.achievements.map((a) => <Pill key={a.id} color={C.gold} text={`${a.icon} Succès débloqué : ${a.title}`} />)}
             <View style={{ width: '100%', marginTop: 12 }}><Breakdown c={c} /></View>

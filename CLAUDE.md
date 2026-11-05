@@ -24,8 +24,8 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | **Anti-triche « photo d'écran »** : écran COCO (télé / portable / téléphone) autour de l'avion ≥ 40 %, ou moiré coloré ≥ 12 dB (FFT de la couleur sur 128 px à pleine résolution, médiane de 3 analyses). Partagé avec le natif (fonctions `'worklet'`) | `web/screen.js` |
 | Lecture de l'immatriculation (Tesseract.js, binarisation d'Otsu, 2 passes) | `web/ocr.js`, `web/vendor/tesseract/` |
 | Registre de Transport Canada : marque C-XXXX → modèle exact → type SkyHunt | `web/registry.js`, `web/data/registre-ca.json` |
-| Catalogue de 69 types, 5 raretés, aéroports de référence | `web/catalog.js` |
-| Points, niveaux, 12 succès, statistiques | `web/game.js` |
+| Catalogue : 239 **familles** (cartes, rareté) et 652 **séries** (737-800, 737-900ER, Cessna 172S…), de l'avion de ligne à l'ultraléger, 5 raretés, aéroports de référence. Séries reconnues dans le modèle exact du registre (`matchSeries`) ; sinon le joueur choisit la famille puis la série | `web/fleet.js`, `web/catalog.js` |
+| Points, niveaux, 13 succès, statistiques | `web/game.js` |
 | Écrans : Chasser, Cartes (cartes / album / refusées), Carte (Leaflet + OSM), Classement, Profil | `web/ui-*.js` |
 | Classements mondial / national / du mois, points calculés par le serveur | `web/ui-ranks.js`, `native/src/RanksScreen.tsx`, `supabase/migrations/20261104120000_classements.sql` |
 | Classement entre amis + gestion des amis dans le **Profil** (code ami fixe, demandes à accepter / refuser) | `web/ui-friends.js`, `native/src/FriendsSection.tsx`, `native/src/friends.ts`, `supabase/migrations/20261105120000_amis.sql` |
@@ -44,7 +44,8 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   faites avant celle-ci : aucune → 5, 1-9 → 3, 10-49 → 2, 50+ → 1. Gardée dans `placePoints` ; sans compte : 1.
 - Q = 1,2 si photo excellente (confiance ≥ 0,8 et taille ≥ 0,4), sinon 1.
 - R selon le nombre de captures précédentes du même type : 1 ; 0,5 ; 0,25 ; puis 0,1.
-- Bonus +5 pour un nouveau type. Même immatriculation déjà capturée = 0 point.
+- Bonus +5 pour un nouveau type (famille). +2 pour une **nouvelle série** d'une famille déjà capturée (pas cumulé avec le +5 ;
+  une série qui n'appartient pas à la famille est ignorée). Même immatriculation déjà capturée = 0 point.
 - 0 point (et ne compte ni pour R ni pour le bonus) : photo en double d'une photo déjà envoyée (`duplicate`, vu par
   le serveur), appareil militaire sans avertissement accepté (`militaryAckAt`). Voir `blockReason` dans `web/game.js`.
 - Les points sont **recalculés** à chaque chargement (`recomputeAll`) : ne pas les stocker comme vérité.
@@ -52,6 +53,10 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   de `web/game.js` doit être reportée dans une nouvelle migration (`tests/leaderboard.js` compare les deux).
 
 ## Décisions et contraintes à respecter
+
+- **Familles et séries** (décision de Spy, 2026-11-04) : la carte, la rareté et le +5 restent par famille ; chaque série
+  a un identifiant `famille.clé` (ex. `b737-800.900er`) **à ne jamais renommer** (enregistré dans les captures). Après un
+  ajout dans `web/fleet.js` : nouvelle migration générée par `tools/sql_catalogue.mjs`.
 
 - **Pas de photo depuis la galerie**, jamais : c'est la base de l'anti-triche.
 - **Aucune donnée de propriétaire** des registres canadien et américain dans le dépôt ou l'app (vie privée).

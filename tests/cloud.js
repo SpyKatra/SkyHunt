@@ -76,6 +76,16 @@ const capture = (id, extra = {}) => ({
   check('impossible de créer le profil d\'un autre', !!r.error);
   r = await B.from('profiles').insert({ id: uidB, pseudo: `B${stamp % 100000}`, country: 'FR' });
   check('profil B', !r.error, r.error && r.error.message);
+  const admin = createClient(env.url, env.secret, opts);
+  // Pseudo et pays fixés à la création (20261105130000_profil_fige.sql) : seul un administrateur les change.
+  r = await A.from('profiles').update({ pseudo: `Autre${stamp % 1000}`, country: 'FR' }).eq('id', uidA).select();
+  const { data: profA } = await A.from('profiles').select('pseudo, country').eq('id', uidA).single();
+  check('pseudo et pays non modifiables par le joueur', profA.pseudo === pseudoA && profA.country === 'CA', r.error ? r.error.message : JSON.stringify(r.data));
+  r = await A.from('profiles').upsert({ id: uidA, pseudo: `Autre${stamp % 1000}`, country: 'FR' });
+  check('ni par « upsert »', !!r.error, r.error && r.error.message);
+  r = await admin.from('profiles').update({ country: 'FR' }).eq('id', uidA).select();
+  check('modifiable par un administrateur', !r.error && r.data[0].country === 'FR', r.error && r.error.message);
+  await admin.from('profiles').update({ country: 'CA' }).eq('id', uidA);
 
   // --- Photos
   r = await A.storage.from('captures').upload(`${uidA}/1.jpg`, jpeg(1), { contentType: 'image/jpeg' });
@@ -127,7 +137,7 @@ const capture = (id, extra = {}) => ({
   await A.storage.from('captures').remove([`${uidA}/1.jpg`]);
   r = await A.rpc('delete_my_account');
   check('suppression du compte', !r.error, r.error && r.error.message);
-  const admin = createClient(env.url, env.secret, opts);
+  // admin : créé plus haut (profils)
   r = await admin.from('captures').select('id').eq('user_id', uidA);
   const r2 = await admin.from('profiles').select('id').eq('id', uidA);
   check('captures et profil effacés en cascade', r.data.length === 0 && r2.data.length === 0);

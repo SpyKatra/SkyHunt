@@ -5,9 +5,11 @@
 // Scénario : téléphone 1 joue sans compte (1 refusée + 1 valide), crée un compte avec le code reçu,
 // ses cartes partent sur le serveur ; téléphone 2 se connecte et les récupère (avec la photo) ;
 // une suppression sur le téléphone 2 se propage au 1 ; déconnexion ; suppression du compte.
+// Pseudo et pays figés. Amis : deux joueurs créés par l'API demandent le téléphone 1 ; il accepte l'un et refuse l'autre.
 const path = require('path');
 const { execSync } = require('child_process');
 const { chromium } = require('playwright');
+const { createClient } = require('@supabase/supabase-js');
 
 const URL_APP = process.env.SKYHUNT_URL || 'http://localhost:8766/';
 const shot = (p, name) => p.screenshot({ path: path.join(__dirname, 'shots', `c-${name}.png`) });
@@ -15,7 +17,7 @@ const shot = (p, name) => p.screenshot({ path: path.join(__dirname, 'shots', `c-
 function localEnv() {
   const out = execSync('npx --yes supabase@3.0.0 status -o json', { cwd: path.join(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   const s = JSON.parse(out.slice(out.indexOf('{')));
-  return { url: s.API_URL, key: s.PUBLISHABLE_KEY || s.ANON_KEY, mail: s.MAILPIT_URL || s.INBUCKET_URL };
+  return { url: s.API_URL, key: s.PUBLISHABLE_KEY || s.ANON_KEY, secret: s.SECRET_KEY || s.SERVICE_ROLE_KEY, mail: s.MAILPIT_URL || s.INBUCKET_URL };
 }
 
 async function codeFromMail(mailUrl, email, after) {
@@ -127,6 +129,90 @@ function check(name, ok, extra = '') {
   await p1.waitForSelector('#r-list .rk.me', { timeout: 15000 });
   check('classement du mois', Number(await p1.textContent('#r-list .rk.me .rk-pts')) === xp1);
   await shot(p1, '2c-classement-mois');
+
+  // ---------- Pseudo et pays fixés
+  await p1.click('[data-view="profile"]');
+  check('pseudo et pays non modifiables (pas de champ)', !(await p1.$('#p-name')) && !(await p1.$('#p-country')));
+  check('mention du support', /contacte le support/.test(await p1.textContent('#profile-content')));
+
+  // ---------- Amis (gestion dans le Profil, classement dans Classement)
+  const sbOpts = { auth: { persistSession: false, autoRefreshToken: false } };
+  const admin = createClient(env.url, env.secret, sbOpts);
+  async function botPlayer(name) {
+    const mail = `${name}${Date.now()}@test.skyhunt`;
+    const pw = `Mdp-${Date.now()}-${name}`;
+    const { data } = await admin.auth.admin.createUser({ email: mail, password: pw, email_confirm: true });
+    const sb = createClient(env.url, env.key, sbOpts);
+    await sb.auth.signInWithPassword({ email: mail, password: pw });
+    const ps = `${name}${Date.now() % 100000}`;
+    await sb.from('profiles').insert({ id: data.user.id, pseudo: ps, country: 'FR' });
+    return { sb, id: data.user.id, pseudo: ps };
+  }
+  const bob = await botPlayer('Bob');
+  const eve = await botPlayer('Eve');
+  await p1.waitForFunction(() => /^[2-9A-HJ-NP-Z]{4}-[2-9A-HJ-NP-Z]{4}$/.test((document.querySelector('#friends .fcode b') || {}).textContent || ''), null, { timeout: 15000 });
+  const myCode = (await p1.textContent('#friends .fcode b')).trim();
+  check('code ami affiché dans le Profil (ABCD-EFGH)', true, myCode);
+  // Code inconnu
+  await p1.fill('#f-code', 'zzzz-zzzz');
+  await p1.click('#f-add button');
+  await p1.waitForFunction(() => /Code inconnu/.test(document.querySelector('#toast').textContent), null, { timeout: 10000 });
+  check('code inconnu signalé', true);
+  // Bob et Eve demandent le téléphone 1
+  for (const P of [bob, eve]) {
+    const { data, error } = await P.sb.rpc('request_friend', { p_code: myCode });
+    if (error || data !== 'envoyée') throw new Error(`demande ${P.pseudo} : ${error && error.message} ${data}`);
+  }
+  // En rouvrant le Profil (plus de 10 s après la dernière lecture), la liste est relue
+  await p1.click('[data-view="cards"]');
+  await p1.waitForTimeout(10500);
+  await p1.click('[data-view="profile"]');
+  await p1.waitForSelector('.tab[data-view="profile"] .badge', { timeout: 15000 });
+  check('pastille sur Profil : 2 demandes', (await p1.textContent('.tab[data-view="profile"] .badge')) === '2');
+  await p1.waitForSelector('#friends [data-fact="accept"]', { timeout: 15000 });
+  await p1.$eval('#friends', (el) => el.scrollIntoView());
+  await shot(p1, '2d-demandes-amis');
+  const rowOf = (ps) => p1.locator('#friends .fr', { hasText: ps });
+  await rowOf(bob.pseudo).locator('[data-fact="accept"]').click();
+  await p1.waitForFunction((ps) => [...document.querySelectorAll('#friends .fr')].some((r) => r.textContent.includes(ps) && r.querySelector('[data-fact="remove"]')), bob.pseudo, { timeout: 15000 });
+  await rowOf(eve.pseudo).locator('[data-fact="decline"]').click();
+  await p1.waitForFunction((ps) => ![...document.querySelectorAll('#friends .fr')].some((r) => r.textContent.includes(ps)), eve.pseudo, { timeout: 15000 });
+  check('Bob accepté, Eve refusée', true);
+  check('pastille retirée', (await p1.$('.tab[data-view="profile"] .badge')) === null);
+  const { data: eveView } = await eve.sb.rpc('my_friends');
+  check('Eve voit « refusée » (relance dans 48 h), sans pseudo', eveView.length === 1 && eveView[0].state === 'refusée' && eveView[0].pseudo == null && !!eveView[0].retry_at,
+    JSON.stringify(eveView));
+  // Classement entre amis
+  await p1.click('[data-view="ranks"]');
+  await p1.click('[data-scope="amis"]');
+  await p1.waitForFunction((ps) => [...document.querySelectorAll('#r-list .rk')].some((r) => r.textContent.includes(ps)), bob.pseudo, { timeout: 15000 });
+  const lbNames = await p1.$$eval('#r-list .rk-name', (els) => els.map((e) => e.textContent));
+  check('classement entre amis : moi et Bob, pas Eve', lbNames.length === 2 && !lbNames.some((n) => n.includes(eve.pseudo)), lbNames.join(' | '));
+  check('pas de gestion des amis dans Classement', !(await p1.$('#view-ranks #f-code')));
+  await shot(p1, '2e-classement-amis');
+  await p1.click('#r-friends');
+  await p1.waitForSelector('#view-profile.active #friends', { timeout: 5000 });
+  check('bouton « Gérer mes amis » → Profil', true);
+  // Demande envoyée par le téléphone 1 : en attente, sans pseudo, puis annulée
+  const zoe = await botPlayer('Zoe');
+  const { data: zoeCode } = await zoe.sb.rpc('my_friend_code');
+  await p1.fill('#f-code', zoeCode.toLowerCase());
+  await p1.click('#f-add button');
+  await p1.waitForSelector('#friends [data-fact="cancel"]', { timeout: 15000 });
+  const pendingRow = (await p1.textContent('#friends .fr:has([data-fact="cancel"])')).replace(/\s+/g, ' ');
+  check('demande envoyée : en attente, sans pseudo', pendingRow.includes('en attente') && !pendingRow.includes(zoe.pseudo), pendingRow);
+  // Zoe refuse : le téléphone 1 voit « refusée » et l'heure de relance
+  const { data: zoeList } = await zoe.sb.rpc('my_friends');
+  await zoe.sb.rpc('respond_friend', { p_user: zoeList[0].user_id, p_accept: false });
+  await p1.click('[data-view="cards"]');
+  await p1.waitForTimeout(10500);
+  await p1.click('[data-view="profile"]');
+  await p1.waitForFunction(() => /relance possible dans 48 h/.test((document.querySelector('#friends') || {}).textContent || ''), null, { timeout: 15000 }).catch(() => {});
+  const refused = (await p1.textContent('#friends')).replace(/\s+/g, ' ');
+  check('refus affiché avec relance dans 48 h', /refusée · relance possible dans 48 h/.test(refused), refused.slice(0, 300));
+  check('pas de bouton avant 48 h', !(await p1.$('#friends [data-fact="retry"]')));
+  await shot(p1, '2f-amis');
+  for (const P of [bob, eve, zoe]) await admin.auth.admin.deleteUser(P.id);
 
   // ---------- Téléphone 2 : récupération
   const p2 = await phone('tél2');

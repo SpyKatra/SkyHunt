@@ -147,4 +147,5 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    pHash anti-doublons, plus tard recoupement ADS-B (licence commerciale à vérifier).
 5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) en plus.
 6. **Bêta fermée** (TestFlight, test fermé Play Store), 50 à 300 testeurs.
+   Avant la bêta : choisir l'adresse du support (affichée près du pseudo et du pays figés, « contacte le support »).
 7. **Publication** : politique de confidentialité (Loi 25, LPRPDE, RGPD), conditions, fiches des boutiques.

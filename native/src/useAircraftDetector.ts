@@ -18,6 +18,8 @@ import { AIRPLANE_CLASS, DETECTION_FPS, MODEL_INPUT } from './config';
 import { analyzePatch, findScreenObject, PATCH, pushMedian } from './shared';
 import type { Detection } from './types';
 
+const IS_ANDROID = Platform.OS === 'android';
+
 /** État gardé d'une image à l'autre dans le runtime du worklet (les captures de closure sont copiées). */
 type WorkletState = { last: number; count: number; frames: number; fpsT0: number; fps: number };
 
@@ -78,9 +80,15 @@ export function useAircraftDetector() {
         state.last = t0;
         state.count += 1;
 
-        // Orientation : l'image brute du capteur est tournée ; le Resizer la remet à l'endroit.
+        // Orientation : l'image brute du capteur est tournée. rot = quarts de tour (sens horaire) pour la remettre
+        // à l'endroit. Mesuré sur Samsung S23 (2026-11-05, diagnostic « confiance selon la rotation ») : téléphone
+        // vertical = « left » = 90°. Le Resizer, lui, tourne « left » de 270° (image à l'envers : confiance 26 % au
+        // lieu de 57 %) : on retourne son image de 180° quand l'orientation est « left » ou « right ».
         const o = frame.orientation;
-        const rot = o === 'right' ? 1 : o === 'down' ? 2 : o === 'left' ? 3 : 0;
+        const rot = IS_ANDROID
+          ? (o === 'left' ? 1 : o === 'down' ? 2 : o === 'right' ? 3 : 0)
+          : (o === 'right' ? 1 : o === 'down' ? 2 : o === 'left' ? 3 : 0); // iPhone : pas encore vérifié
+        const flipResized = IS_ANDROID && (rot === 1 || rot === 3);
         const fw = frame.width;
         const fh = frame.height;
         const aspect = rot % 2 === 1 ? fh / fw : fw / fh;
@@ -150,6 +158,17 @@ export function useAircraftDetector() {
           input = resized.getPixelBuffer().slice(0);
           resized.dispose();
           rgb = new Uint8Array(input);
+          if (flipResized) {
+            // Rotation de 180° = ordre des pixels inversé.
+            const n = S * S;
+            for (let i = 0, j = n - 1; i < j; i++, j--) {
+              const a = i * 3;
+              const b = j * 3;
+              const r0 = rgb[a], g0 = rgb[a + 1], b0 = rgb[a + 2];
+              rgb[a] = rgb[b]; rgb[a + 1] = rgb[b + 1]; rgb[a + 2] = rgb[b + 2];
+              rgb[b] = r0; rgb[b + 1] = g0; rgb[b + 2] = b0;
+            }
+          }
         } else {
           rgb = new Uint8Array(S * S * 3);
           for (let y = 0; y < S; y++) {

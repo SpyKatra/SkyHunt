@@ -1,5 +1,5 @@
 // Petits utilitaires d'interface partagés.
-import { RARITIES, getType, nearestAirport } from './catalog.js';
+import { RARITIES, cardName, getType, nearestAirport } from './catalog.js';
 
 export const $ = (id) => document.getElementById(id);
 
@@ -58,7 +58,7 @@ export function cardHtml(c, { showPoints = true } = {}) {
       <span class="card-rarity">${esc(t.id === 'inconnu' ? 'Mystère' : r.label)}</span>
       ${showPoints ? `<span class="card-pts">${c.points} pts</span>` : ''}
       <div class="card-body">
-        <div class="card-name">${esc(t.name)}</div>
+        <div class="card-name">${esc(cardName(c))}</div>
         <div class="card-maker">${esc(t.maker)}${c.registration ? ` · ${esc(c.registration)}` : ''}</div>
         <div class="card-foot"><span>${esc(placeLabel(c))}</span><span>${esc(fmtDate(c.takenAt))}</span></div>
       </div>

@@ -1,5 +1,5 @@
 // Écran « Mes cartes » : cartes, album (complétion du catalogue) et photos refusées.
-import { AIRCRAFT, CATEGORIES, RARITIES, getType } from './catalog.js';
+import { AIRCRAFT, CATEGORIES, RARITIES, getType, seriesOf } from './catalog.js';
 import { $, cardHtml, esc, fmtDate, photoUrl, placeLong, rarityStyle, toast } from './ui-common.js';
 import { breakdownHtml } from './ui-reveal.js';
 
@@ -89,9 +89,10 @@ export function openDetail(id) {
     <img class="big" src="${photoUrl(c)}" alt="" />
     <dl class="kv">
       ${c.valid ? `<dt>Rareté</dt><dd><span class="rar" style="background:${r.color}">${t.id === 'inconnu' ? 'Mystère' : r.label}</span></dd>
-      <dt>Constructeur</dt><dd>${esc(t.maker)}</dd>` : ''}
+      <dt>Constructeur</dt><dd>${esc(t.maker)}</dd>
+      ${t.id !== 'inconnu' ? `<dt>Série</dt><dd>${esc(seriesOf(t.id, c.seriesId)?.name || (t.series.length ? 'pas encore précisée (Changer le type)' : t.name))}</dd>` : ''}` : ''}
       ${c.registration ? `<dt>Immatriculation</dt><dd>${esc(c.registration)}${c.registrationSource === 'ocr' ? ' <small style="color:var(--ok)">lue sur la photo</small>' : ''}</dd>` : ''}
-      ${c.registryModel ? `<dt>Modèle exact</dt><dd>${esc(c.registryModel)} <small style="color:var(--muted)">(registre TC)</small></dd>` : ''}
+      ${c.registryModel ? `<dt>Modèle exact</dt><dd>${esc(c.registryModel)} <small style="color:var(--muted)">(registre)</small></dd>` : ''}
       <dt>Date</dt><dd>${esc(fmtDate(c.takenAt, true))}</dd>
       <dt>Lieu</dt><dd>${esc(placeLong(c))}</dd>
       <dt>Mesures</dt><dd>Confiance ${Math.round(c.confidence * 100)} % · taille ${Math.round(c.sizeRatio * 100)} % · netteté ${Math.round(c.sharpness)}</dd>

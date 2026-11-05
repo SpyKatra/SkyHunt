@@ -3,6 +3,7 @@
 //  - États-Unis (FAA) : N12345, data/registre-us.json (tools/build_registre_us.py), chargé seulement au besoin
 // Fichiers régénérés chaque semaine par GitHub Actions ; aucune donnée sur les propriétaires.
 // Module partagé avec l'app native (native/metro.config.js) : pas de DOM ici.
+import { matchSeries } from './catalog.js';
 
 let cache = null;
 let source = () => fetch('data/registre-ca.json').then((r) => (r.ok ? r.json() : null));
@@ -80,7 +81,8 @@ export function notFoundMessage(reg) {
 
 /**
  * Cherche une immatriculation canadienne (C-XXXX) ou américaine (N…).
- * Renvoie { registration, make, model, label, typeId, date, registry: 'ca' | 'us' } ou null.
+ * Renvoie { registration, make, model, label, typeId, seriesId, date, registry: 'ca' | 'us' } ou null
+ * (seriesId : série précise reconnue d'après le modèle exact, ex. 737-8H4 → 737-800).
  */
 export async function lookupRegistration(reg) {
   const norm = normalizeRegistration(reg);
@@ -96,7 +98,8 @@ export async function lookupRegistration(reg) {
   }
   if (idx == null) return null;
   const [make, model, typeId] = db.models[idx];
-  return { registration: norm, make, model, label: labelOf(make, model), typeId: typeId || null, date: db.date, registry: which };
+  const seriesId = typeId ? matchSeries(typeId, model) : null;
+  return { registration: norm, make, model, label: labelOf(make, model), typeId: typeId || null, seriesId, date: db.date, registry: which };
 }
 
 export async function registryHas(mark4) {

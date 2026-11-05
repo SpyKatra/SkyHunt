@@ -112,7 +112,9 @@ const opts = { auth: { persistSession: false, autoRefreshToken: false } };
   sm = await scores(A);
   check('avertissement accepté après coup (changement de type) : la capture compte', !eAck && sm.m1.points > 0, eAck ? eAck.message : sm.m1.points);
   const { data: types } = await A.sb.from('aircraft_types').select('id').eq('military', true);
-  check('8 types militaires sur le serveur', types.length === 8, types.length);
+  const { AIRCRAFT } = await import(require('url').pathToFileURL(path.join(__dirname, '..', 'web', 'catalog.js')).href);
+  const mil = AIRCRAFT.filter((t) => t.category === 'militaire').map((t) => t.id).sort();
+  check('types militaires du serveur = catalogue', types.map((t) => t.id).sort().join() === mil.join(), `${types.length} / ${mil.length}`);
 
   // ---------- Photos en double (empreinte calculée par le serveur)
   async function withPhoto(P, id, file, extra = {}) {

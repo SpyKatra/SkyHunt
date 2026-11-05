@@ -98,8 +98,10 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   Pas de mise à jour sans tester sur un vrai téléphone. Frame processor = `useFrameOutput({ onFrame })` :
   appeler `frame.dispose()`, état entre images dans `globalThis` du worklet, retour à JS par `scheduleOnRN`.
 - Natif 0.6 : **patchs** (`native/patches/`, patch-package au `postinstall`) :
-  `expo-text-extractor` utilise ML Kit **embarqué** (`com.google.mlkit:text-recognition`) car la version des services
-  Google plantait sur Samsung S23 (« getClass() on a null object reference ») et ses erreurs donnent la pile ;
+  `expo-text-extractor` utilise ML Kit **embarqué** (`com.google.mlkit:text-recognition`) et ses erreurs donnent la pile.
+  ML Kit plantait sur Samsung S23 (« getClass() on a null object reference ») en version services Google **et** embarquée :
+  erreur à la création du lecteur, un composant interne de ML Kit arrive vide. Cause probable, à confirmer : R8, actif par
+  défaut dans le modèle Expo. **R8 désactivé en 0.7** (`enableMinifyInReleaseBuilds: false` dans `app.json`) ;
   `react-native-vision-camera` (Android) lit `LENS_FOCUS_DISTANCE` (dioptries) et le renvoie dans
   `controller.lensPosition` (+ 1000 × calibration, -1 inconnu) : diagnostic anti-écran (l'EXIF du S23 n'a pas la distance).
   Mettre à jour ces paquets = refaire les patchs.

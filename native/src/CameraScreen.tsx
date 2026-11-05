@@ -15,7 +15,7 @@ import { C } from './theme';
 import type { Capture } from './types';
 import { Bar } from './ui';
 
-const APP_VERSION = '0.6';
+const APP_VERSION = '0.7';
 const SAFETY_KEY = 'skyhunt.safety';
 
 /** Consigne de sécurité, à accepter avant la première utilisation de la caméra (et à chaque nouvelle version). */

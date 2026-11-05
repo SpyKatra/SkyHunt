@@ -284,3 +284,15 @@ h1, h2, h3 { margin: 0; }
 .friends h3 { font-size: 14px; color: var(--muted); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
 .ranks .primary-small { width: 100%; padding: 12px; border-radius: 10px; background: var(--accent); font-weight: 700; font-size: 15px; margin-top: 10px; }
 #f-code { text-transform: uppercase; letter-spacing: 2px; }
+
+/* ================= Avertissements (militaire, sécurité) ================= */
+.notice-wrap { position: fixed; inset: 0; z-index: 1200; background: rgba(0,0,0,.75); display: flex; align-items: center;
+  justify-content: center; padding: 20px; }
+.notice { width: 100%; max-width: 440px; max-height: 90%; overflow-y: auto; background: var(--bg); border-radius: 18px;
+  padding: 20px; border: 1px solid #f59e0b; animation: up .2s ease-out; }
+.notice h2 { font-size: 19px; margin-bottom: 10px; color: #fbbf24; }
+#notice-body { font-size: 15px; line-height: 1.45; color: var(--text); }
+#notice-body ul { margin: 8px 0 0 18px; }
+#notice-body li { margin-bottom: 6px; }
+#notice-body .fnote { color: var(--muted); font-size: 12px; margin-top: 10px; }
+.notice button { width: 100%; margin-top: 12px; }

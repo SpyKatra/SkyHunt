@@ -2,9 +2,10 @@ import { DEFAULT_THRESHOLDS, DETECTION_INTERVAL_MS } from './config.js';
 import { createDetector } from './detector.js';
 import { achievementState, computeStats, levelFor, recomputeAll } from './game.js';
 import { addCapture, clearCaptures, deleteCapture, listCaptures } from './store.js';
-import { cloudState, initCloud, onCloudChange, queueDelete, scheduleSync, stamp } from './cloud.js';
+import { cloudState, initCloud, onCloudChange, queueDelete, scheduleSync, stamp, takeCaptureToken } from './cloud.js';
 import { initCards, openDetail, renderCards } from './ui-cards.js';
-import { $, forgetPhoto, toast } from './ui-common.js';
+import { $, askNotice, esc, forgetPhoto, toast } from './ui-common.js';
+import { SAFETY_TEXT, SAFETY_VERSION } from './military.js';
 import { identify, initIdentify } from './ui-identify.js';
 import { warmUpOcr } from './ocr.js';
 import { bindMapPopupLinks, initMap, renderMap } from './ui-map.js';
@@ -114,7 +115,25 @@ syncSliders();
 /* =================== Caméra =================== */
 $('start').addEventListener('click', start);
 
+// Consigne de sécurité, montrée avant la première utilisation de la caméra (et à chaque nouvelle version du texte).
+const SAFETY_KEY = 'skyhunt.safety';
+async function safetyNotice() {
+  try {
+    const seen = JSON.parse(localStorage.getItem(SAFETY_KEY) || 'null');
+    if (seen && seen.version >= SAFETY_VERSION) return;
+  } catch { /* illisible : on la remontre */ }
+  await askNotice({
+    title: 'Avant de chasser',
+    html: `<ul>${SAFETY_TEXT.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>
+      <p class="fnote">Tu es responsable de respecter les lois et règlements du lieu où tu te trouves.</p>`,
+    ok: 'J’ai compris',
+    cancel: null,
+  });
+  try { localStorage.setItem(SAFETY_KEY, JSON.stringify({ version: SAFETY_VERSION, at: new Date().toISOString() })); } catch { /* mode privé */ }
+}
+
 async function start() {
+  await safetyNotice();
   const btn = $('start');
   btn.disabled = true;
   btn.textContent = 'Démarrage…';
@@ -285,6 +304,8 @@ async function capture() {
       typeId: null,
       registration: null,
       userAgent: navigator.userAgent,
+      // Jeton à usage unique (anti-triche) : prouve au serveur que la photo n'est pas antidatée.
+      captureToken: valid ? takeCaptureToken() : null,
     };
 
     if (!valid) {

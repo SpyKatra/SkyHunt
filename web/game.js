@@ -17,6 +17,18 @@ export function isExcellent(c) {
 const normReg = (r) => (r || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 
 /**
+ * Capture valide qui ne compte pourtant pas (0 point, ni répétition ni bonus), comme sur le serveur
+ * (supabase/migrations/20261106120000_anti_triche.sql) :
+ *  - photo en double d'une photo déjà envoyée (`duplicate`, constaté par le serveur) ;
+ *  - appareil militaire sans avertissement accepté (`militaryAckAt`).
+ */
+export function blockReason(c) {
+  if (c.duplicate) return 'Photo en double d’une photo déjà envoyée';
+  if (getType(c.typeId).category === 'militaire' && !c.militaryAckAt) return 'Avertissement militaire non accepté';
+  return null;
+}
+
+/**
  * Recalcule les points de toutes les captures, dans l'ordre chronologique.
  * Renvoie une nouvelle liste (même ordre que l'entrée) avec `points` et `breakdown`.
  */
@@ -30,6 +42,11 @@ export function recomputeAll(list) {
   for (const c of chrono) {
     if (!c.valid) {
       out.set(c.id, { ...c, points: 0, breakdown: null });
+      continue;
+    }
+    const blocked = blockReason(c);
+    if (blocked) {
+      out.set(c.id, { ...c, points: 0, breakdown: { blocked } });
       continue;
     }
     const type = getType(c.typeId);

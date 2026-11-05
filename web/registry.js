@@ -1,6 +1,7 @@
-// Registre canadien (Transport Canada) : immatriculation C-XXXX → constructeur, modèle, type SkyHunt.
-// Le fichier data/registre-ca.json est régénéré chaque semaine par GitHub Actions
-// (tools/build_registre.py). Il ne contient aucune donnée sur les propriétaires.
+// Registres d'immatriculation : immatriculation → constructeur, modèle, type SkyHunt.
+//  - Canada (Transport Canada) : C-XXXX, data/registre-ca.json (tools/build_registre.py)
+//  - États-Unis (FAA) : N12345, data/registre-us.json (tools/build_registre_us.py), chargé seulement au besoin
+// Fichiers régénérés chaque semaine par GitHub Actions ; aucune donnée sur les propriétaires.
 // Module partagé avec l'app native (native/metro.config.js) : pas de DOM ici.
 
 let cache = null;
@@ -17,6 +18,38 @@ export function loadRegistry() {
   return cache;
 }
 
+// ---- États-Unis (FAA) : ≈ 250 000 avions, chargé à la première marque N- rencontrée.
+let usCache = null;
+let usSource = () => fetch('data/registre-us.json').then((r) => (r.ok ? r.json() : null));
+
+/** L'app native fournit sa propre source (téléchargée depuis GitHub Pages, gardée sur le téléphone). */
+export function setUsRegistrySource(fn) {
+  usSource = fn;
+  usCache = null;
+}
+
+/** { date, source, models, index: Map(marque sans le N → n° de modèle) } ou null. */
+export function loadUsRegistry() {
+  if (!usCache) {
+    const p = Promise.resolve().then(usSource).then((db) => {
+      if (!db) return null;
+      const index = new Map();
+      db.marks.forEach((list, i) => { for (const m of list.split(' ')) if (m) index.set(m, i); });
+      return { date: db.date, source: db.source, models: db.models, index };
+    }).catch(() => null);
+    usCache = p;
+    // Échec (hors ligne) : on réessaiera à la prochaine recherche.
+    p.then((db) => { if (!db && usCache === p) usCache = null; });
+  }
+  return usCache;
+}
+
+function labelOf(make, model) {
+  // « Saab » + « SAAB 340B » → « Saab 340B »
+  const first = make.split(' ')[0];
+  return model.toUpperCase().startsWith(first.toUpperCase()) ? `${first}${model.slice(first.length)}` : `${make} ${model}`;
+}
+
 /** Normalise une immatriculation : « c gxyz », « CGXYZ » → « C-GXYZ ». */
 export function normalizeRegistration(raw) {
   const s = (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -27,21 +60,43 @@ export function normalizeRegistration(raw) {
   return dash ? `${dash[1]}-${dash[2]}` : (raw || '').toUpperCase().trim();
 }
 
-/** Cherche une immatriculation canadienne. Renvoie { make, model, typeId, date } ou null. */
+/** Registre qui couvre cette immatriculation : 'ca', 'us' ou null. */
+export function registryOf(reg) {
+  const norm = normalizeRegistration(reg);
+  if (/^C-[FGI][A-Z]{3}$/.test(norm)) return 'ca';
+  if (/^N[1-9][0-9A-Z]{0,4}$/.test(norm)) return 'us';
+  return null;
+}
+
+export const REGISTRY_NAMES = { ca: 'registre de Transport Canada', us: 'registre américain de la FAA' };
+
+/** Message quand l'immatriculation n'est trouvée dans aucun registre. */
+export function notFoundMessage(reg) {
+  const which = registryOf(reg);
+  if (which === 'ca') return 'introuvable au registre canadien, vérifie les lettres.';
+  if (which === 'us') return 'introuvable au registre américain (FAA), vérifie les chiffres et les lettres.';
+  return 'immatriculation étrangère : seuls les registres canadien (C-) et américain (N) sont couverts pour l’instant.';
+}
+
+/**
+ * Cherche une immatriculation canadienne (C-XXXX) ou américaine (N…).
+ * Renvoie { registration, make, model, label, typeId, date, registry: 'ca' | 'us' } ou null.
+ */
 export async function lookupRegistration(reg) {
   const norm = normalizeRegistration(reg);
-  const m = norm.match(/^C-([FGI][A-Z]{3})$/);
-  if (!m) return null;
-  const db = await loadRegistry();
-  if (!db) return null;
-  const idx = db.marks[m[1]];
+  const which = registryOf(norm);
+  let db = null;
+  let idx = null;
+  if (which === 'ca') {
+    db = await loadRegistry();
+    idx = db ? db.marks[norm.slice(2)] : null;
+  } else if (which === 'us') {
+    db = await loadUsRegistry();
+    idx = db ? db.index.get(norm.slice(1)) : null;
+  }
   if (idx == null) return null;
   const [make, model, typeId] = db.models[idx];
-  // « Saab » + « SAAB 340B » → « Saab 340B »
-  const label = model.toUpperCase().startsWith(make.toUpperCase().split(' ')[0])
-    ? `${make.split(' ')[0]}${model.slice(make.split(' ')[0].length)}`
-    : `${make} ${model}`;
-  return { registration: norm, make, model, label, typeId: typeId || null, date: db.date };
+  return { registration: norm, make, model, label: labelOf(make, model), typeId: typeId || null, date: db.date, registry: which };
 }
 
 export async function registryHas(mark4) {
@@ -93,10 +148,11 @@ export async function extractCandidates(text) {
       re.lastIndex = m.index + 1; // chevauchements permis
     }
   }
-  // États-Unis : N + 1 à 5 caractères.
-  for (const m of joined.matchAll(/\bN([1-9][0-9]{0,4}[A-Z]{0,2})\b/g)) {
-    if (m[0].length >= 3) add(m[0], 30);
-  }
+  // États-Unis : N + 1 à 5 caractères (chiffres puis au plus 2 lettres). Bonus si la marque existe à la FAA
+  // (registre chargé seulement si le texte contient une marque N candidate).
+  const usMarks = [...joined.matchAll(/\bN([1-9][0-9]{0,4}[A-Z]{0,2})\b/g)].filter((m) => m[0].length >= 3 && m[0].length <= 6);
+  const us = usMarks.length ? await loadUsRegistry() : null;
+  for (const m of usMarks) add(m[0], us && us.index.has(m[1]) ? 85 : 30);
   // Autres pays : préfixe-suffixe (F-GKXA, D-AIXX, G-EUUA, EI-FXA, 9H-…).
   for (const m of joined.matchAll(/\b([A-Z]{1,2}|[0-9][A-Z])-([A-Z]{3,4}|[A-Z0-9]{3,5})\b/g)) {
     if (m[1] === 'C') continue;

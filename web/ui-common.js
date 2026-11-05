@@ -76,3 +76,26 @@ export function toast(text) {
 
 export function openSheet(id) { $(id).classList.remove('hidden'); }
 export function closeSheet(id) { $(id).classList.add('hidden'); }
+
+/**
+ * Fenêtre d'avertissement bloquante. Renvoie true si le joueur accepte, false s'il annule
+ * (sans « cancel », un seul bouton).
+ */
+export function askNotice({ title, html, ok = 'Je comprends, continuer', cancel = 'Annuler' }) {
+  $('notice-title').textContent = title;
+  $('notice-body').innerHTML = html;
+  $('notice-ok').textContent = ok;
+  $('notice-cancel').textContent = cancel || '';
+  $('notice-cancel').classList.toggle('hidden', !cancel);
+  $('notice').classList.remove('hidden');
+  return new Promise((resolve) => {
+    const done = (v) => {
+      $('notice').classList.add('hidden');
+      $('notice-ok').onclick = null;
+      $('notice-cancel').onclick = null;
+      resolve(v);
+    };
+    $('notice-ok').onclick = () => done(true);
+    $('notice-cancel').onclick = () => done(false);
+  });
+}

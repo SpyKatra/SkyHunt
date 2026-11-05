@@ -46,9 +46,12 @@ export function useAircraftDetector() {
   const lastMoire = useRef(0);
   const lastMoireMs = useRef(-1);
   const lastRot = useRef<number[] | undefined>(undefined);
+  const lastPeaks = useRef('');
   const report = useMemo(() => (d: Detection) => {
     if (d.rotConf) lastRot.current = d.rotConf;
     else d.rotConf = lastRot.current;
+    if (d.moirePeaks !== undefined) lastPeaks.current = d.moirePeaks;
+    else d.moirePeaks = lastPeaks.current;
     if (!d.found) { moireHist.current = []; lastMoire.current = 0; }
     else if (d.moire >= 0) lastMoire.current = d.moire = pushMedian(moireHist.current, d.moire);
     else d.moire = lastMoire.current;
@@ -283,6 +286,7 @@ export function useAircraftDetector() {
         const scr = findScreenObject(boxes, classes, scores, count, xmin, ymin, xmax, ymax);
         let moire = -1;
         let moireMs = -1;
+        let moirePeaks: string | undefined;
         if (wantMoire && yBuf.length > 0 && fw >= PATCH && fh >= PATCH) {
           const tm = Date.now();
           const c = toRaw((xmin + xmax) / 2, (ymin + ymax) / 2);
@@ -292,7 +296,9 @@ export function useAircraftDetector() {
           for (let y = 0; y < PATCH; y++) {
             for (let x = 0; x < PATCH; x++) rgbAt(px + x, py + y, patch, (y * PATCH + x) * 3);
           }
-          moire = analyzePatch(patch, PATCH).moire;
+          const an = analyzePatch(patch, PATCH);
+          moire = an.moire;
+          moirePeaks = an.peaks;
           moireMs = Date.now() - tm;
         }
 
@@ -313,6 +319,7 @@ export function useAircraftDetector() {
           frameInfo,
           cameraFps: state.fps,
           rotConf,
+          moirePeaks,
         });
       } finally {
         frame.dispose();

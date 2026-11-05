@@ -19,6 +19,8 @@ export type Detection = {
   screenClass: number;
   /** Diagnostic : confiance « avion » de l'image tournée de 0°, 90°, 180° et 270° (sens horaire), mesurée de temps en temps. */
   rotConf?: number[];
+  /** Diagnostic : positions des deux pics du moiré (« Cb u,v u,v », cycles par carré de 128 px). */
+  moirePeaks?: string;
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
   aspect: number;
   /** Durée totale de l'analyse (ms). */

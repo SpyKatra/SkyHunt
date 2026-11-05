@@ -178,6 +178,8 @@ function spectralPeak(L, n) {
   // par le centre). La grille de pixels d'un écran l'est dans DEUX directions : on garde la paire de
   // pics la plus forte dont les directions font au moins 30° entre elles.
   let best = 0;
+  let bi = -1;
+  let bj = -1;
   for (let i = 0; i < ps.length; i++) {
     if (ps[i] <= best) continue;
     const ri = Math.sqrt(pu[i] * pu[i] + pv[i] * pv[i]);
@@ -187,9 +189,13 @@ function spectralPeak(L, n) {
       const cos = Math.abs(pu[i] * pu[j] + pv[i] * pv[j]) / (ri * rj);
       if (cos > 0.866) continue;
       best = Math.min(ps[i], ps[j]);
+      bi = i;
+      bj = j;
     }
   }
-  return best;
+  // Positions des deux pics (diagnostic) : « u,v » en cycles par carré de n pixels.
+  const peaks = bi < 0 ? '' : `${pu[bi]},${pv[bi]} ${pu[bj]},${pv[bj]}`;
+  return { score: best, peaks };
 }
 
 /**
@@ -210,7 +216,11 @@ export function analyzePatch(rgb, n) {
     Cr[i] = rgb[k] - y;
   }
   const [Lb, Lr] = logSpectra(Cb, Cr, n);
-  return { moire: 10 * Math.max(spectralPeak(Lb, n), spectralPeak(Lr, n)) };
+  const b = spectralPeak(Lb, n);
+  const r = spectralPeak(Lr, n);
+  const top = b.score >= r.score ? b : r;
+  // peaks : diagnostic (où sont les pics : un défaut du capteur tombe toujours au même endroit).
+  return { moire: 10 * top.score, peaks: top.peaks ? `${b.score >= r.score ? 'Cb' : 'Cr'} ${top.peaks}` : '' };
 }
 
 /**

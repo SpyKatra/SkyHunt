@@ -324,7 +324,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
             Confiance selon la rotation : {detection.rotConf ? detection.rotConf.map((c, i) => `${i * 90}° ${Math.round(c * 100)} %`).join(' · ') : 'mesure…'}
           </Text>
           <Text style={st.debugText}>Luminosité : {Math.round(detection.brightness)}</Text>
-          <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire})</Text>
+          <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire}){detection.moirePeaks ? ` · pics ${detection.moirePeaks}` : ''}</Text>
           <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
           <Text style={st.debugText}>
             Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}

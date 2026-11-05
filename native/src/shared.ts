@@ -36,7 +36,7 @@ export const findScreenObject = screen.findScreenObject as (
 ) => { score: number; cls: number };
 export const pushMedian = screen.pushMedian as (hist: number[], value: number, k?: number) => number;
 export const analyzePatch = screen.analyzePatch as (rgb: Uint8Array, n: number) =>
-  { moire: number };
+  { moire: number; peaks: string };
 
 // Appareils militaires : avertissement à accepter (listes de pays provisoires, voir web/military.js).
 export type MilitaryGate = { blocked?: boolean; ask?: boolean; ackAt?: string; policy: 'interdit' | 'restreint' | 'libre' };

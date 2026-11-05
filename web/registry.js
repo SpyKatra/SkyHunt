@@ -47,7 +47,7 @@ export function loadUsRegistry() {
 function labelOf(make, model) {
   // « Saab » + « SAAB 340B » → « Saab 340B »
   const first = make.split(' ')[0];
-  return model.toUpperCase().startsWith(first.toUpperCase()) ? `${first}${model.slice(first.length)}` : `${make} ${model}`;
+  return model.toUpperCase().startsWith(first.toUpperCase()) ? `${first}${model.slice(first.length)}` : `${make} ${model}`.trim();
 }
 
 /** Normalise une immatriculation : « c gxyz », « CGXYZ » → « C-GXYZ ». */

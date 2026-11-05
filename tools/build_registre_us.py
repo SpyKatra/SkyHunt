@@ -5,7 +5,7 @@ fichier « ReleasableAircraft.zip » (MASTER.txt + ACFTREF.txt).
 
 Usage : python3 tools/build_registre_us.py <dossier contenant MASTER.txt et ACFTREF.txt>
 
-Le fichier produit ne contient AUCUNE donnée sur les propriétaires : MASTER.txt contient des noms et
+Le fichier produit ne contient AUCUNE donnée sur les propriétaires ni sur les constructeurs amateurs : MASTER.txt contient des noms et
 des adresses, mais seules les colonnes N-NUMBER, MFR MDL CODE et TYPE AIRCRAFT sont lues. On ne garde
 que les avions (TYPE AIRCRAFT 4 = monomoteur, 5 = multimoteur) : marque N, constructeur, modèle et type
 SkyHunt correspondant (mêmes règles que le registre canadien, tools/build_registre.py).
@@ -47,7 +47,12 @@ def title(make):
 def main(folder):
     ref = {}
     for r in rows(find(folder, 'ACFTREF.TXT')):
-        ref[r['CODE']] = (clean(r.get('MFR')), clean(r.get('MODEL')), r.get('TYPE-ACFT', ''), r.get('AC-WEIGHT', ''))
+        make, model = clean(r.get('MFR')), clean(r.get('MODEL'))
+        # Appareil non certifié (construction amateur, BUILD-CERT-IND 1) : le « constructeur » est souvent le nom
+        # d'une personne. On ne le garde pas (vie privée) ; aucun type SkyHunt n'est de toute façon concerné.
+        if r.get('BUILD-CERT-IND', '').strip() == '1':
+            make, model = 'CONSTRUCTION AMATEUR', ''
+        ref[r['CODE']] = (make, model, r.get('TYPE-ACFT', ''), r.get('AC-WEIGHT', ''))
 
     models, model_idx, groups = [], {}, []
     mapped = collections.Counter()

@@ -2,7 +2,10 @@
 // Formule du document : Score = (P_appareil + P_lieu) × Q × R + Bonus
 import { AIRCRAFT, RARITIES, getType, nearestAirport } from './catalog.js';
 
-const PLACE_POINTS = 1;            // points de lieu provisoires (la rareté locale viendra avec le serveur)
+// Points de lieu : calculés par le serveur selon la rareté du lieu (captures de tous les joueurs à moins
+// de 5 km avant celle-ci : aucune → 5, 1-9 → 3, 10-49 → 2, 50+ → 1), reçus dans `placePoints`.
+// Sans compte ou pas encore synchronisée : 1. Voir supabase/migrations/20261104120000_classements.sql.
+const PLACE_POINTS = 1;
 const REPEAT_FACTORS = [1, 0.5, 0.25, 0.1];
 const NEW_TYPE_BONUS = 5;
 
@@ -18,7 +21,8 @@ const normReg = (r) => (r || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
  * Renvoie une nouvelle liste (même ordre que l'entrée) avec `points` et `breakdown`.
  */
 export function recomputeAll(list) {
-  const chrono = [...list].sort((a, b) => a.takenAt.localeCompare(b.takenAt));
+  // Même ordre que le serveur (heure, puis identifiant) pour que les points soient identiques.
+  const chrono = [...list].sort((a, b) => a.takenAt.localeCompare(b.takenAt) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const typeCount = {};
   const regs = new Set();
   const out = new Map();
@@ -38,13 +42,14 @@ export function recomputeAll(list) {
     const regSeen = reg && regs.has(reg);
     const bonus = known && n === 0 ? NEW_TYPE_BONUS : 0;
 
-    let points = Math.round((rarity.points + PLACE_POINTS) * Q * R) + bonus;
+    const place = Number.isFinite(c.placePoints) ? c.placePoints : PLACE_POINTS;
+    let points = Math.round((rarity.points + place) * Q * R) + bonus;
     if (regSeen) points = 0;
 
     out.set(c.id, {
       ...c,
       points,
-      breakdown: { aircraft: rarity.points, place: PLACE_POINTS, Q, R, bonus, regSeen: !!regSeen, repeat: n },
+      breakdown: { aircraft: rarity.points, place, Q, R, bonus, regSeen: !!regSeen, repeat: n },
     });
     if (known) typeCount[type.id] = n + 1;
     if (reg) regs.add(reg);

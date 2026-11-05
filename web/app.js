@@ -9,6 +9,7 @@ import { identify, initIdentify } from './ui-identify.js';
 import { warmUpOcr } from './ocr.js';
 import { bindMapPopupLinks, initMap, renderMap } from './ui-map.js';
 import { initProfile, renderProfile } from './ui-profile.js';
+import { initRanks, invalidateRanks, renderRanks } from './ui-ranks.js';
 import { reveal } from './ui-reveal.js';
 import { checkDetection } from './validation.js';
 import { SCREEN_CLASSES } from './screen.js';
@@ -371,12 +372,13 @@ for (const tab of document.querySelectorAll('.tab')) {
 function showView(name) {
   state.view = name;
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.view === name);
-  for (const v of ['camera', 'cards', 'map', 'profile']) $(`view-${v}`).classList.toggle('active', v === name);
+  for (const v of ['camera', 'cards', 'map', 'ranks', 'profile']) $(`view-${v}`).classList.toggle('active', v === name);
   refreshView();
 }
 function refreshView() {
   if (state.view === 'cards') renderCards();
   else if (state.view === 'map') renderMap();
+  else if (state.view === 'ranks') renderRanks();
   else if (state.view === 'profile') renderProfile();
 }
 
@@ -384,10 +386,11 @@ initIdentify();
 initCards({ getList, onChangeType: changeType, onDelete: removeCapture });
 initMap({ getList });
 bindMapPopupLinks(openDetail);
+initRanks({ onGoProfile: () => showView('profile') });
 initProfile({ getList, onCopy: copyData, onClear: clearAll, onAccountChange: async () => { await reload(); refreshView(); } });
 reload();
 
 // Compte et sauvegarde sur le serveur (si configuré dans cloud-config.js).
 initCloud().then(async () => { await reload(); refreshView(); scheduleSync(0); }).catch((e) => console.warn('cloud', e));
-onCloudChange(() => { if (state.view === 'profile') renderProfile({ soft: true }); });
-window.addEventListener('skyhunt:pulled', async () => { await reload(); refreshView(); });
+onCloudChange(() => { if (state.view === 'profile') renderProfile({ soft: true }); else if (state.view === 'ranks') renderRanks(); });
+window.addEventListener('skyhunt:pulled', async () => { invalidateRanks(); await reload(); refreshView(); });

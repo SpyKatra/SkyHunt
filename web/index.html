@@ -12,7 +12,7 @@
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
-  <link rel="stylesheet" href="style.css?v=0.4.3" />
+  <link rel="stylesheet" href="style.css?v=0.4.4" />
 </head>
 <body>
   <main id="app">
@@ -85,6 +85,11 @@
       <div id="map-info" class="panel"></div>
     </section>
 
+    <!-- ============ Classement ============ -->
+    <section id="view-ranks" class="view scroll">
+      <div id="ranks-content"></div>
+    </section>
+
     <!-- ============ Profil ============ -->
     <section id="view-profile" class="view scroll">
       <div id="profile-content"></div>
@@ -95,6 +100,7 @@
     <button data-view="camera" class="tab active"><span class="ti">◎</span>Chasser</button>
     <button data-view="cards" class="tab"><span class="ti">▦</span><span id="tab-cards">Cartes</span></button>
     <button data-view="map" class="tab"><span class="ti">⌖</span>Carte</button>
+    <button data-view="ranks" class="tab"><span class="ti">♛</span>Classement</button>
     <button data-view="profile" class="tab"><span class="ti">☺</span>Profil</button>
   </nav>
 
@@ -139,6 +145,6 @@
   <!-- La bibliothèque TFLite se termine par « exports.tfweb = … » : on lui fournit un objet vide. -->
   <script>var exports = {};</script>
   <script src="vendor/tflite/tflite_web_api_client.js"></script>
-  <script type="module" src="app.js?v=0.4.3"></script>
+  <script type="module" src="app.js?v=0.4.4"></script>
 </body>
 </html>

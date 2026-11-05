@@ -1,11 +1,18 @@
 // Fiche « Quel avion as-tu capturé ? » (équivalent de web/ui-identify.js)
 // 1. L'immatriculation est lue automatiquement sur la photo (reconnaissance de texte du téléphone).
-// 2. Si c'est une marque canadienne, le registre de Transport Canada donne le modèle exact.
+// 2. Si c'est une marque canadienne (C-) ou américaine (N), le registre de Transport Canada ou de la FAA
+//    donne le modèle exact.
 // 3. Le joueur confirme d'une touche, ou choisit lui-même dans le catalogue.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as Location from 'expo-location';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { cloudState } from './cloud';
 import { readRegistration } from './ocr';
-import { AIRCRAFT, CATEGORIES, getType, lookupRegistration, normalizeRegistration, RARITIES, type Lookup } from './shared';
+import {
+  acceptMilitary, AIRCRAFT, CATEGORIES, getType, lookupRegistration, MILITARY_FORBIDDEN_TEXT, MILITARY_WARNING,
+  militaryGate, normalizeRegistration, notFoundMessage, RARITIES, REGISTRY_NAMES, type Lookup,
+} from './shared';
+import type { Capture } from './types';
 import { useApp } from './store';
 import { C } from './theme';
 import { Btn, Sheet } from './ui';
@@ -15,6 +22,41 @@ type Auto =
   | { state: 'reading' }
   | { state: 'none'; message: string }
   | { state: 'found'; registration: string; source: string; lookup: Lookup | null };
+
+/** Pays où la photo a été prise (position de la capture), sinon celui du profil, sinon inconnu. */
+async function captureCountry(c: Capture): Promise<string | null> {
+  if (c.latitude != null && c.longitude != null) {
+    try {
+      const [place] = await Location.reverseGeocodeAsync({ latitude: c.latitude, longitude: c.longitude });
+      if (place?.isoCountryCode) return place.isoCountryCode.toUpperCase();
+    } catch { /* hors ligne : on se rabat sur le profil */ }
+  }
+  return cloudState().profile?.country ?? null;
+}
+
+const ask = (title: string, message: string, buttons: { text: string; value: boolean; style?: 'cancel' }[]) =>
+  new Promise<boolean>((resolve) => {
+    Alert.alert(title, message, buttons.map((b) => ({ text: b.text, style: b.style, onPress: () => resolve(b.value) })),
+      { cancelable: true, onDismiss: () => resolve(false) });
+  });
+
+/** Avertissement militaire : date d'acceptation, ou null si le joueur annule ou si c'est interdit dans ce pays. */
+async function militaryAck(c: Capture): Promise<string | null> {
+  if (c.militaryAckAt) return c.militaryAckAt;
+  const gate = militaryGate(await captureCountry(c));
+  if (gate.blocked) {
+    await ask('⛔ Appareil militaire', MILITARY_FORBIDDEN_TEXT, [{ text: 'Choisir un autre type', value: false }]);
+    return null;
+  }
+  if (!gate.ask) return gate.ackAt ?? acceptMilitary();
+  const note = gate.policy === 'restreint'
+    ? 'Pays avec restrictions (ou inconnu) : avertissement à accepter à chaque photo.'
+    : 'Accepté une fois pour cette session.';
+  const ok = await ask('⚠ Appareil militaire détecté',
+    `${MILITARY_WARNING.replace(/^Appareil militaire détecté\. /, '')}\n\n${note} Ton acceptation est enregistrée avec la date et l’heure. Ta position n’est jamais publique.`,
+    [{ text: 'Annuler', value: false, style: 'cancel' }, { text: 'Je comprends, continuer', value: true }]);
+  return ok ? acceptMilitary() : null;
+}
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 
@@ -76,8 +118,15 @@ export default function IdentifySheet() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reg]);
 
-  function finish(typeId: string) {
-    if (!identifyReq) return;
+  const checking = useRef(false);
+  async function finish(typeId: string) {
+    if (!identifyReq || checking.current) return;
+    let militaryAckAt = identifyReq.capture.militaryAckAt ?? null;
+    if (getType(typeId).category === 'militaire') {
+      checking.current = true;
+      militaryAckAt = await militaryAck(identifyReq.capture).finally(() => { checking.current = false; });
+      if (!militaryAckAt) return; // la fiche reste ouverte : autre type ou « Je ne sais pas »
+    }
     session.current++;
     const typed = normalizeRegistration(reg) || null;
     const fromAuto = auto.state === 'found' && typed === auto.registration;
@@ -86,6 +135,7 @@ export default function IdentifySheet() {
       registration: typed,
       registrationSource: typed ? (fromAuto && auto.state === 'found' ? auto.source : 'manuel') : null,
       registryModel: fromAuto && auto.state === 'found' && auto.lookup ? auto.lookup.label : null,
+      militaryAckAt,
     });
   }
 
@@ -168,13 +218,12 @@ function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) 
         <View style={{ flex: 1 }}>
           <Text style={st.reg}>{auto.registration}</Text>
           <Text style={st.model}>{lk.label}</Text>
-          <Text style={st.src}>{srcLabel} · registre de Transport Canada du {lk.date}</Text>
+          <Text style={st.src}>{srcLabel} · {REGISTRY_NAMES[lk.registry]} du {lk.date}</Text>
           <Btn kind="ok" label={`Confirmer : ${t.name} · ${r.label}`} onPress={() => onConfirm(lk.typeId!)} style={{ marginTop: 10 }} />
         </View>
       </View>
     );
   }
-  const foreign = !/^C-/.test(auto.registration);
   return (
     <View style={[st.auto, st.autoPartial]}>
       <View style={{ flex: 1 }}>
@@ -182,10 +231,8 @@ function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) 
         {lk ? <Text style={st.model}>{lk.label}</Text> : null}
         <Text style={st.src}>
           {srcLabel} · {lk
-            ? 'ce modèle n’est pas encore dans le catalogue SkyHunt : choisis le type le plus proche, ou « Je ne sais pas ».'
-            : foreign
-              ? 'immatriculation étrangère : le registre canadien ne la couvre pas encore. Choisis le type ci-dessous.'
-              : 'introuvable au registre canadien, vérifie les lettres. Choisis le type ci-dessous.'}
+            ? `${REGISTRY_NAMES[lk.registry]} · ce modèle n’est pas encore dans le catalogue SkyHunt : choisis le type le plus proche, ou « Je ne sais pas ».`
+            : `${notFoundMessage(auto.registration)} Choisis le type ci-dessous.`}
         </Text>
       </View>
     </View>

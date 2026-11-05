@@ -84,7 +84,7 @@ const CDG = [49.0097, 2.5479];
       cap('a4', 3, YQB, { type_id: 'a220-300', confidence: 0.9, size_ratio: 0.5 }), // excellente : Q = 1,2
       cap('a5', 4, YQB, { valid: false, reasons: ['Trop loin'] }),         // refusée : 0
       cap('a6', 30, YUL, { type_id: 'inconnu' }),                          // février, mystère, lieu découvert
-      cap('a7', 31, YQB, { type_id: 'u2' }),                               // légendaire, février
+      cap('a7', 31, YQB, { type_id: 'u2', military_ack_at: at(31) }),      // légendaire militaire (avertissement accepté), février
     ],
     B: [
       cap('b1', 5, YQB, { type_id: 'saab340' }),                          // 4 captures valides avant à YQB : 3
@@ -98,6 +98,12 @@ const CDG = [49.0097, 2.5479];
     const { error } = await P.sb.from('captures').insert(caps[who]);
     check(`envoi des captures de ${who}`, !error, error && error.message);
   }
+  // Captures datées de 2020 : sans jeton, le serveur les daterait à leur réception (anti-triche). Le test
+  // simule des captures « vérifiées » (jeton valide à l'époque) en posant verified directement dans la base
+  // locale, déclencheurs coupés le temps de la requête.
+  const ids = Object.values(caps).flat().map((c) => `'${c.client_id}'`).join(',');
+  execSync(`docker exec supabase_db_skyhunt psql -U postgres -v ON_ERROR_STOP=1 -c "set session_replication_role = replica; update public.captures set verified = true where client_id in (${ids.replace(/"/g, '')})"`,
+    { stdio: 'pipe' });
 
   // --- Points du serveur = recomputeAll (avec les points de lieu du serveur)
   async function compare(who, P) {
@@ -108,6 +114,7 @@ const CDG = [49.0097, 2.5479];
     const local = recomputeAll(caps[who].map((c) => ({
       id: c.client_id, takenAt: c.taken_at, valid: c.valid, typeId: c.type_id, registration: c.registration || null,
       confidence: c.confidence, sizeRatio: c.size_ratio, placePoints: server[c.client_id] && server[c.client_id].place_points,
+      militaryAckAt: c.military_ack_at || null, duplicate: server[c.client_id] && server[c.client_id].duplicate,
     })));
     const diff = local.filter((l) => server[l.id].points !== l.points).map((l) => `${l.id} serveur ${server[l.id].points} / app ${l.points}`);
     check(`points de ${who} : serveur = web/game.js`, diff.length === 0, diff.join(' ; '));
@@ -116,6 +123,20 @@ const CDG = [49.0097, 2.5479];
   const sA = await compare('A', A);
   const sB = await compare('B', B);
   const sC = await compare('C', C);
+
+  // --- game.js : militaire sans avertissement et photo en double = 0 point (comme le serveur)
+  {
+    const base = { takenAt: at(40), valid: true, confidence: 0.7, sizeRatio: 0.3, placePoints: 5 };
+    const [m0, m1, d1, n1] = recomputeAll([
+      { ...base, id: 'm0', typeId: 'f22' },
+      { ...base, id: 'm1', typeId: 'f22', militaryAckAt: at(40) },
+      { ...base, id: 'd1', typeId: 'a380', duplicate: true },
+      { ...base, id: 'n1', typeId: 'a380' },
+    ]);
+    check('game.js : militaire sans avertissement = 0, bloqué', m0.points === 0 && /militaire/.test(m0.breakdown.blocked), JSON.stringify(m0.breakdown));
+    check('game.js : militaire avec avertissement = points, premier du type', m1.points === 40 && m1.breakdown.bonus === 5, m1.points);
+    check('game.js : double = 0 et ne compte pas pour la répétition', d1.points === 0 && n1.breakdown.repeat === 0 && n1.points > 0, `${d1.points} / ${n1.points}`);
+  }
 
   // --- Rareté des lieux
   check('lieu découvert = 5 points', sA.a1 && sA.a1.place_points === 5 && sC.c1.place_points === 5 && sA.a6.place_points === 5,

@@ -15,6 +15,7 @@ import type { Capture, FriendRow, RankRow } from './types';
 
 const BUCKET = 'captures';
 const DELETES_KEY = 'skyhunt.pendingDeletes';
+const TOKENS_KEY = 'skyhunt.captureTokens';
 const PAGE = 500;
 
 export type Profile = { pseudo: string; country: string };
@@ -70,6 +71,7 @@ export async function initCloud() {
   });
   st.enabled = true;
   try { deletes = JSON.parse((await AsyncStorage.getItem(DELETES_KEY)) || '[]'); } catch { deletes = []; }
+  try { tokens = JSON.parse((await AsyncStorage.getItem(TOKENS_KEY)) || '{}'); } catch { tokens = {}; }
 
   const { data } = await sb.auth.getSession();
   await setUser(data.session ? data.session.user : null);
@@ -206,6 +208,33 @@ async function countPending() {
     + deletes.filter((d) => d.uid === uid).length;
 }
 
+/* =================== Jetons de capture (anti-triche) =================== */
+// Même principe que web/cloud.js : jetons à usage unique distribués par le serveur (20 au plus, 7 jours),
+// un par photo valide ; une photo avec jeton n'est pas antidatée, même envoyée plus tard.
+type Token = { token: string; issuedAt: string };
+const TOKEN_LIFE_MS = 7 * 86400e3 - 3600e3;
+let tokens: Record<string, Token[]> = {};
+const freshTokens = (uid: string) => (tokens[uid] || []).filter((t) => Date.now() - Date.parse(t.issuedAt) < TOKEN_LIFE_MS);
+function saveTokens(uid: string, list: Token[]) {
+  tokens = { ...tokens, [uid]: list };
+  AsyncStorage.setItem(TOKENS_KEY, JSON.stringify(tokens)).catch(() => {});
+}
+async function refillTokens(uid: string) {
+  if (freshTokens(uid).length >= 10) return;
+  const { data, error } = await client().rpc('issue_capture_tokens', { p_count: 20 - freshTokens(uid).length });
+  if (error) { console.warn('jetons', error.message); return; } // serveur pas à jour : on continue sans
+  saveTokens(uid, [...freshTokens(uid), ...(data as Row[]).map((t) => ({ token: t.token as string, issuedAt: t.issued_at as string }))]);
+}
+/** Prend un jeton pour une photo qu'on vient de prendre (null sans compte ou réserve vide). */
+export function takeCaptureToken(): string | null {
+  if (!st.user) return null;
+  const list = freshTokens(st.user.id);
+  const t = list.shift();
+  saveTokens(st.user.id, list);
+  if (list.length < 10) scheduleSync(3000);
+  return t ? t.token : null;
+}
+
 /* =================== Synchronisation =================== */
 let timer: ReturnType<typeof setTimeout> | undefined;
 export function scheduleSync(delay = 1500) {
@@ -226,6 +255,7 @@ export function sync(): Promise<{ pushed: number; pulled: number }> {
       emit();
       try {
         const uid = st.user!.id;
+        await refillTokens(uid);
         await pushDeletes(uid);
         const pushed = await pushCaptures(uid);
         const pulled = (await pullCaptures(uid)) + (await pullScores(uid));
@@ -306,8 +336,9 @@ async function pullCaptures(uid: string) {
     } else if (mine.syncState === 'synced') {
       // Identification corrigée sur un autre appareil ?
       const upd: Partial<Capture> = {};
-      for (const [k, col] of ID_FIELDS) {
-        if ((mine[k] ?? null) !== (row[col] ?? null)) (upd as Row)[k] = row[col];
+      for (const [k, col, conv = (v: any) => v] of ID_FIELDS) {
+        const v = conv(row[col] ?? null);
+        if ((mine[k] ?? null) !== v) (upd as Row)[k] = v;
       }
       if (!mine.photoUri && row.photo_path) upd.photoUri = await fetchPhoto(row.client_id, row.photo_path);
       if (Object.keys(upd).length) { await putCapture({ ...mine, ...upd, photoPath: row.photo_path }); n++; }
@@ -329,12 +360,15 @@ async function pullScores(uid: string) {
   const { data, error } = await client().rpc('my_scores');
   // Facultatif : sans cette fonction (serveur pas encore à jour), on garde 1 point de lieu sans bloquer la synchro.
   if (error) { console.warn('my_scores', error.message); return 0; }
-  const byId = new Map((data as Row[]).map((r) => [r.client_id as string, r.place_points as number]));
+  const byId = new Map((data as Row[]).map((r) => [r.client_id as string, r]));
   let n = 0;
   for (const c of await listCaptures()) {
-    if (c.ownerId !== uid || !byId.has(c.id) || c.placePoints === byId.get(c.id)) continue;
+    const r = byId.get(c.id);
+    if (c.ownerId !== uid || !r) continue;
+    const duplicate = !!r.duplicate; // photo en double, constaté par le serveur
+    if (c.placePoints === r.place_points && !!c.duplicate === duplicate) continue;
     const now = await getCapture(c.id); // relue : ne pas écraser une modification faite entre-temps
-    if (now) { await putCapture({ ...now, placePoints: byId.get(c.id) }); n++; }
+    if (now) { await putCapture({ ...now, placePoints: r.place_points, duplicate }); n++; }
   }
   return n;
 }
@@ -383,11 +417,13 @@ async function fetchPhoto(id: string, path: string): Promise<string | null> {
   }
 }
 
-const ID_FIELDS: [keyof Capture, string][] = [
+const isoOrNull = (v: any) => (v ? new Date(v).toISOString() : null);
+const ID_FIELDS: [keyof Capture, string, ((v: any) => any)?][] = [
   ['typeId', 'type_id'],
   ['registration', 'registration'],
   ['registrationSource', 'registration_source'],
   ['registryModel', 'registry_model'],
+  ['militaryAckAt', 'military_ack_at', isoOrNull],
 ];
 
 function toRow(c: Capture, uid: string, photoPath: string | null) {
@@ -417,6 +453,8 @@ function toRow(c: Capture, uid: string, photoPath: string | null) {
     registration: c.registration ?? null,
     registration_source: c.registrationSource ?? null,
     registry_model: c.registryModel ?? null,
+    capture_token: c.captureToken ?? null,
+    military_ack_at: c.militaryAckAt ?? null,
   };
 }
 
@@ -445,6 +483,8 @@ function fromRow(r: Row, uid: string): Capture {
     registration: r.registration,
     registrationSource: r.registration_source,
     registryModel: r.registry_model,
+    militaryAckAt: isoOrNull(r.military_ack_at),
+    captureToken: r.capture_token ?? null,
     userAgent: r.user_agent || '',
     ownerId: uid,
     syncState: 'synced',

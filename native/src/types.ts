@@ -91,9 +91,17 @@ export type Capture = {
   photoPath?: string | null;
   /** Points de lieu calculés par le serveur (rareté du lieu) ; absent = 1. */
   placePoints?: number;
+  /** Jeton de capture à usage unique (anti-triche) : prouve que la photo n'est pas antidatée. */
+  captureToken?: string | null;
+  /** Avertissement militaire accepté (date, heure) : obligatoire pour qu'une capture militaire compte. */
+  militaryAckAt?: string | null;
+  /** Photo en double d'une photo déjà envoyée (constaté par le serveur) : 0 point. */
+  duplicate?: boolean;
 };
 
 export type Breakdown = {
+  /** Capture valide qui ne compte pas (double, militaire sans avertissement) : seul ce champ est présent. */
+  blocked?: string;
   aircraft: number;
   place: number;
   Q: number;
@@ -120,4 +128,5 @@ export type Identification = {
   registration: string | null;
   registrationSource: string | null;
   registryModel: string | null;
+  militaryAckAt?: string | null;
 };

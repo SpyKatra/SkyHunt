@@ -31,6 +31,9 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | Classement entre amis + gestion des amis dans le **Profil** (code ami fixe, demandes à accepter / refuser) | `web/ui-friends.js`, `native/src/FriendsSection.tsx`, `native/src/friends.ts`, `supabase/migrations/20261105120000_amis.sql` |
 | Compte (code à 6 chiffres par courriel), profil pseudo + pays ISO **fixés à la création**, synchro des captures, suppression du compte | `web/cloud.js`, `web/cloud-config.js`, `web/ui-profile.js`, `supabase/migrations/20261105130000_profil_fige.sql` |
 | Serveur : tables, RLS, mesures figées, photos privées | `supabase/migrations/`, `supabase/README.md` |
+| **Anti-triche serveur** : jetons de capture à usage unique (sans jeton = compté à l'heure de réception), photos en double (empreinte calculée par la fonction Edge `photo-hash`, ressemblance ≥ 0,9 = 0 point) | `web/cloud.js`, `supabase/migrations/20261106120000_anti_triche.sql`, `supabase/functions/photo-hash/` |
+| **Avertissement militaire** (avant qu'un type militaire compte) et consigne de sécurité au 1er lancement de la caméra ; listes de pays **provisoires** | `web/military.js`, `web/ui-identify.js`, `native/src/IdentifySheet.tsx` |
+| Registre de la FAA (États-Unis) : marque N… → modèle → type, chargé au besoin | `web/registry.js`, `tools/build_registre_us.py`, `web/data/registre-us.json` |
 | **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. Pas encore compilée sur un téléphone | `native/` (voir `native/README.md`) |
 
 ### Règle de points (document de projet)
@@ -42,6 +45,8 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 - Q = 1,2 si photo excellente (confiance ≥ 0,8 et taille ≥ 0,4), sinon 1.
 - R selon le nombre de captures précédentes du même type : 1 ; 0,5 ; 0,25 ; puis 0,1.
 - Bonus +5 pour un nouveau type. Même immatriculation déjà capturée = 0 point.
+- 0 point (et ne compte ni pour R ni pour le bonus) : photo en double d'une photo déjà envoyée (`duplicate`, vu par
+  le serveur), appareil militaire sans avertissement accepté (`militaryAckAt`). Voir `blockReason` dans `web/game.js`.
 - Les points sont **recalculés** à chaque chargement (`recomputeAll`) : ne pas les stocker comme vérité.
   Le serveur refait le même calcul pour les classements (`private.scored_captures`) : toute modification des règles
   de `web/game.js` doit être reportée dans une nouvelle migration (`tests/leaderboard.js` compare les deux).
@@ -49,13 +54,17 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 ## Décisions et contraintes à respecter
 
 - **Pas de photo depuis la galerie**, jamais : c'est la base de l'anti-triche.
-- **Aucune donnée de propriétaire** du registre canadien dans le dépôt ou l'app (vie privée).
-  `tools/build_registre.py` ne garde que marque, constructeur, modèle, type.
+- **Aucune donnée de propriétaire** des registres canadien et américain dans le dépôt ou l'app (vie privée).
+  `tools/build_registre.py` et `tools/build_registre_us.py` ne gardent que marque, constructeur, modèle, type.
+  Le registre FAA (≈ 60 Mo, noms et adresses) n'est téléchargé que par GitHub Actions, jamais enregistré.
 - Le registre canadien est **très dense** (≈ 30 600 marques sur ≈ 35 000 possibles) : une marque mal lue
   tombe presque toujours sur un autre avion existant. Ne corriger que les confusions « forcées »
   (1ʳᵉ lettre E→F, chiffres→lettres) et **toujours faire confirmer le joueur**.
-- Vols militaires : prévoir un avertissement à accepter avant la photo (voir le document de projet) ;
-  certains pays interdisent ces photos. Ne jamais encourager l'entrée en zone réglementée.
+- Vols militaires : avertissement à accepter quand le joueur choisit un type militaire (le détecteur ne sait pas
+  distinguer un avion militaire) : une fois par session (pays sans restriction), à chaque photo (pays restreint ou
+  inconnu), capture militaire impossible (pays interdit). Pays : position de la photo (natif), sinon pays du profil.
+  Les listes de `web/military.js` sont **provisoires : à faire valider par un juriste avant la publication**.
+  Pas encore de zone de 1 km autour des bases (il faut une source de données). Ne jamais encourager l'entrée en zone réglementée.
 - Spy est autorisé à photographier depuis une cour privée côté piste : ne pas bloquer ces zones
   par défaut ; prévoir plus tard un statut « accès autorisé ».
 - Serveur : les points ne sont **jamais stockés** ; les mesures d'une capture sont figées après l'envoi (déclencheur),
@@ -99,6 +108,7 @@ npx supabase@3.0.0 start                       # serveur local (Docker), puis :
 node tests/cloud.js                            # règles du serveur
 node tests/leaderboard.js                      # classements, points serveur = web/game.js
 node tests/friends.js                          # amis : demandes, refus et relance 48 h, limite d'essais
+node tests/anti-triche.js                      # jetons, captures antidatées, militaire, photos en double
 node tests/e2e-cloud.js                        # compte + synchro entre 2 « téléphones »
 ```
 
@@ -124,7 +134,8 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
 - `.github/workflows/pages.yml` : publie `web/` sur GitHub Pages.
 - `.github/workflows/registre.yml` : chaque lundi, télécharge le registre de Transport Canada
   (`ccarcsdb.zip`, colonnes : 0 marque, 3 constructeur, 4 modèle, 10 catégorie, 19 masse) et régénère
-  `web/data/registre-ca.json`. Les journaux listent les gros appareils non reliés au catalogue :
+  `web/data/registre-ca.json` ; idem pour la FAA (`ReleasableAircraft.zip` : `MASTER.txt` + `ACFTREF.txt`)
+  → `web/data/registre-us.json` (pas embarqué dans l'app native : téléchargé au besoin). Relance ensuite Pages. Les journaux listent les gros appareils non reliés au catalogue :
   s'en servir pour ajouter des règles dans `tools/build_registre.py` et des types dans `web/catalog.js`.
 
 ## Feuille de route (vers une vraie app)
@@ -143,9 +154,11 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    **Mise à jour d'Expo** (2026-11-04) : la SDK 56 (vision-camera 4) fermait l'app sur Android (aperçu noir puis
    plantage natif). Spy a demandé de passer directement à la SDK 58 + vision-camera 5 : branche `sdk-58`, à tester
    sur Android avant de la fusionner dans `main`.
-4. **Anti-triche serveur** : (anti-écran sur le téléphone : fait le 2026-11-03) jeton de capture à usage unique, signature, App Attest / Play Integrity,
-   pHash anti-doublons, plus tard recoupement ADS-B (licence commerciale à vérifier).
-5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) en plus.
+4. **Anti-triche serveur** : (anti-écran sur le téléphone : fait le 2026-11-03) jeton de capture à usage unique et
+   empreinte anti-doublons ← **faits** (2026-11-04, migration `20261106120000_anti_triche.sql` + fonction Edge
+   `photo-hash` à mettre en ligne) ; reste : signature, App Attest / Play Integrity, plus tard recoupement ADS-B
+   (licence commerciale à vérifier).
+5. **IA de reconnaissance du type** quand l'immatriculation n'est pas lisible ; registre FAA (N-) ← **fait** (2026-11-04).
 6. **Bêta fermée** (TestFlight, test fermé Play Store), 50 à 300 testeurs.
    Avant la bêta : choisir l'adresse du support (affichée près du pseudo et du pays figés, « contacte le support »).
 7. **Publication** : politique de confidentialité (Loi 25, LPRPDE, RGPD), conditions, fiches des boutiques.

@@ -77,6 +77,7 @@ function check(name, ok, extra = '') {
   check('section Compte visible', await p1.isVisible('#a-email'));
   await p1.click('[data-view="camera"]');
   await p1.click('#start');
+  await p1.click('#notice-ok'); // consigne de sécurité
   await p1.waitForFunction(() => document.querySelector('#status').textContent.startsWith('Trop loin'), null, { timeout: 20000 });
   await p1.click('#shutter');
   await p1.waitForTimeout(600);
@@ -104,6 +105,8 @@ function check(name, ok, extra = '') {
   await shot(p1, '2-compte');
   check('profil créé + cartes envoyées', /À jour/.test(await status(p1)), await status(p1));
   check('pseudo affiché', (await p1.textContent('.profile-hero h1')) === pseudo);
+  const pool = await p1.evaluate(() => Object.values(JSON.parse(localStorage.getItem('skyhunt.captureTokens') || '{}'))[0] || []);
+  check('réserve de jetons de capture reçue', pool.length === 20, pool.length);
   // Points de lieu reçus du serveur → points de la carte et XP recalculés.
   await p1.click('#a-sync');
   await waitSynced(p1);

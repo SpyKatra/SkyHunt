@@ -13,6 +13,7 @@ import { addCapture, deleteCapture, getCapture, listCaptures } from './store.js'
 
 const BUCKET = 'captures';
 const DELETES_KEY = 'skyhunt.pendingDeletes';
+const TOKENS_KEY = 'skyhunt.captureTokens';
 const PAGE = 500;
 
 let sb = null;
@@ -170,6 +171,38 @@ export function queueDelete(c) {
   writeDeletes([...readDeletes(), { uid: c.ownerId, id: c.id }]);
   scheduleSync(0);
 }
+/* =================== Jetons de capture (anti-triche) =================== */
+// Le serveur distribue des jetons à usage unique (20 au plus en réserve, valables 7 jours). Chaque photo prise
+// avec un compte en emporte un : le serveur sait alors qu'elle n'est pas antidatée, même envoyée plus tard
+// (hors ligne). Sans jeton, elle compte à son heure de réception. Voir 20261106120000_anti_triche.sql.
+const TOKEN_LIFE_MS = 7 * 86400e3 - 3600e3; // marge d'une heure
+function readTokens(uid) {
+  try { return (JSON.parse(localStorage.getItem(TOKENS_KEY) || '{}')[uid] || []).filter((t) => Date.now() - Date.parse(t.issuedAt) < TOKEN_LIFE_MS); } catch { return []; }
+}
+function writeTokens(uid, list) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TOKENS_KEY) || '{}');
+    all[uid] = list;
+    localStorage.setItem(TOKENS_KEY, JSON.stringify(all));
+  } catch { /* mode privé */ }
+}
+async function refillTokens(uid) {
+  const have = readTokens(uid);
+  if (have.length >= 10) return;
+  const { data, error } = await sb.rpc('issue_capture_tokens', { p_count: 20 - have.length });
+  if (error) { console.warn('jetons', error.message); return; } // serveur pas à jour : on continue sans
+  writeTokens(uid, [...readTokens(uid), ...data.map((t) => ({ token: t.token, issuedAt: t.issued_at }))]);
+}
+/** Prend un jeton pour une photo qu'on vient de prendre (null sans compte ou réserve vide). */
+export function takeCaptureToken() {
+  if (!st.user) return null;
+  const list = readTokens(st.user.id);
+  const t = list.shift();
+  writeTokens(st.user.id, list);
+  if (list.length < 10) scheduleSync(3000); // la synchro rechargera la réserve
+  return t ? t.token : null;
+}
+
 function readDeletes() {
   try { return JSON.parse(localStorage.getItem(DELETES_KEY) || '[]'); } catch { return []; }
 }
@@ -206,6 +239,7 @@ export function sync() {
       emit();
       try {
         const uid = st.user.id;
+        await refillTokens(uid);
         await pushDeletes(uid);
         const pushed = await pushCaptures(uid);
         const pulled = (await pullCaptures(uid)) + (await pullScores(uid));
@@ -285,7 +319,10 @@ async function pullCaptures(uid) {
     } else if (mine.syncState === 'synced') {
       // Identification corrigée sur un autre appareil ?
       const upd = {};
-      for (const [k, col] of ID_FIELDS) if ((mine[k] ?? null) !== (row[col] ?? null)) upd[k] = row[col];
+      for (const [k, col, conv = (v) => v] of ID_FIELDS) {
+        const v = conv(row[col] ?? null);
+        if ((mine[k] ?? null) !== v) upd[k] = v;
+      }
       if (!mine.photo && row.photo_path) upd.photo = await downloadPhoto(row.photo_path);
       if (Object.keys(upd).length) { await addCapture({ ...mine, ...upd, photoPath: row.photo_path }); n++; }
     }
@@ -306,14 +343,15 @@ async function pullScores(uid) {
   const { data, error } = await sb.rpc('my_scores');
   // Facultatif : sans cette fonction (serveur pas encore à jour), on garde 1 point de lieu sans bloquer la synchro.
   if (error) { console.warn('my_scores', error.message); return 0; }
-  const byId = new Map(data.map((r) => [r.client_id, r.place_points]));
+  const byId = new Map(data.map((r) => [r.client_id, r]));
   let n = 0;
   for (const c of await listCaptures()) {
     if (c.ownerId !== uid || !byId.has(c.id)) continue;
-    const place = byId.get(c.id);
-    if (c.placePoints === place) continue;
+    const r = byId.get(c.id);
+    const duplicate = !!r.duplicate; // photo en double, constaté par le serveur
+    if (c.placePoints === r.place_points && !!c.duplicate === duplicate) continue;
     const now = await getCapture(c.id); // relue : ne pas écraser une modification faite entre-temps
-    if (now) { await addCapture({ ...now, placePoints: place }); n++; }
+    if (now) { await addCapture({ ...now, placePoints: r.place_points, duplicate }); n++; }
   }
   return n;
 }
@@ -380,11 +418,14 @@ async function downloadPhoto(path) {
   return data;
 }
 
+const isoOrNull = (v) => (v ? new Date(v).toISOString() : null);
+// Champs d'identification, modifiables après l'envoi (et recopiés d'un appareil à l'autre).
 const ID_FIELDS = [
   ['typeId', 'type_id'],
   ['registration', 'registration'],
   ['registrationSource', 'registration_source'],
   ['registryModel', 'registry_model'],
+  ['militaryAckAt', 'military_ack_at', isoOrNull],
 ];
 
 function toRow(c, uid, photoPath) {
@@ -414,6 +455,8 @@ function toRow(c, uid, photoPath) {
     registration: c.registration ?? null,
     registration_source: c.registrationSource ?? null,
     registry_model: c.registryModel ?? null,
+    capture_token: c.captureToken ?? null,
+    military_ack_at: c.militaryAckAt ?? null,
   };
 }
 
@@ -442,6 +485,8 @@ function fromRow(r, uid) {
     registration: r.registration,
     registrationSource: r.registration_source,
     registryModel: r.registry_model,
+    militaryAckAt: isoOrNull(r.military_ack_at),
+    captureToken: r.capture_token ?? null,
     userAgent: r.user_agent,
     ownerId: uid,
     syncState: 'synced',

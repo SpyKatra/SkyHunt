@@ -5,6 +5,10 @@ import { $, cardHtml, esc } from './ui-common.js';
 export function breakdownHtml(c) {
   const b = c.breakdown;
   if (!b) return '';
+  if (b.blocked) {
+    return `<div class="breakdown"><div class="line"><span>${esc(b.blocked)}</span><span>0 pt</span></div>
+      <div class="line total"><span>Total</span><span>0 pt</span></div></div>`;
+  }
   const lines = [
     ['Appareil', `${b.aircraft} pts`],
     ['Lieu', `${b.place} pt`],

@@ -12,6 +12,12 @@ const URL_APP = process.env.SKYHUNT_URL || 'http://localhost:8766/';
   await p.goto(URL_APP);
   await p.screenshot({ path: require('path').join(__dirname, 'shots', 's0-start.png') });
   await p.click('#start');
+  // consigne de sécurité au premier lancement
+  await p.waitForSelector('#notice:not(.hidden)', { timeout: 5000 });
+  console.log('sécurité:', (await p.textContent('#notice-title')).trim());
+  await p.waitForTimeout(400);
+  await p.screenshot({ path: require('path').join(__dirname, 'shots', 's0b-securite.png') });
+  await p.click('#notice-ok');
 
   // 1) avion loin -> refusée
   await p.waitForFunction(() => document.querySelector('#status').textContent.startsWith('Trop loin'), null, { timeout: 15000 });
@@ -40,6 +46,14 @@ const URL_APP = process.env.SKYHUNT_URL || 'http://localhost:8766/';
   await p.waitForSelector('#identify:not(.hidden)');
   await p.waitForFunction(() => !document.querySelector('#identify-auto').textContent.includes('Lecture'), null, { timeout: 30000 });
   console.log('auto2:', (await p.textContent('#identify-auto')).replace(/\s+/g, ' ').trim());
+  // type militaire : avertissement ; « Annuler » laisse la fiche ouverte
+  await p.click('#identify-list [data-type="f18"]');
+  await p.waitForSelector('#notice:not(.hidden)', { timeout: 5000 });
+  console.log('militaire:', (await p.textContent('#notice-title')).trim());
+  await p.waitForTimeout(400);
+  await p.screenshot({ path: require('path').join(__dirname, 'shots', 's3b-militaire.png') });
+  await p.click('#notice-cancel');
+  if (await p.isHidden('#identify')) throw new Error('la fiche devait rester ouverte après « Annuler »');
   await p.click('#identify-unknown');
   await p.waitForSelector('#reveal:not(.hidden)');
   await p.waitForTimeout(1500);

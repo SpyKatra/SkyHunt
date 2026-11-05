@@ -102,6 +102,14 @@ export function LockedTile({ typeId, width, onPress }: { typeId: string; width: 
 export function Breakdown({ c }: { c: Scored }) {
   const b = c.breakdown;
   if (!b) return null;
+  if (b.blocked) {
+    return (
+      <View style={s.breakdown}>
+        <View style={s.bLine}><Text style={s.bKey}>{b.blocked}</Text><Text style={s.bVal}>0 pt</Text></View>
+        <View style={[s.bLine, s.bTotal]}><Text style={s.bTotalText}>Total</Text><Text style={s.bTotalText}>0 pt</Text></View>
+      </View>
+    );
+  }
   const fr = (n: number) => String(n).replace('.', ',');
   const lines: [string, string][] = [['Appareil', `${b.aircraft} pts`], ['Lieu', `${b.place} pt`]];
   if (b.Q !== 1) lines.push(['Photo excellente', `×${fr(b.Q)}`]);

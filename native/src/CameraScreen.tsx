@@ -1,10 +1,12 @@
 // Écran « Chasser » : caméra, détection en direct, zoom optique, capture → identification → révélation.
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
-import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SCREEN_CLASSES } from './shared';
+import { takeCaptureToken } from './cloud';
+import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SAFETY_TEXT, SAFETY_VERSION, SCREEN_CLASSES } from './shared';
 import { keepPhoto } from './storage';
 import { useApp } from './store';
 import { C } from './theme';
@@ -13,11 +15,29 @@ import { Bar } from './ui';
 import { useAircraftDetector } from './useAircraftDetector';
 
 const APP_VERSION = '0.5';
+const SAFETY_KEY = 'skyhunt.safety';
+
+/** Consigne de sécurité, à accepter avant la première utilisation de la caméra (et à chaque nouvelle version). */
+function useSafety() {
+  const [ok, setOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(SAFETY_KEY)
+      .then((v) => setOk(!!v && (JSON.parse(v).version ?? 0) >= SAFETY_VERSION))
+      .catch(() => setOk(false));
+  }, []);
+  const accept = () => {
+    setOk(true);
+    AsyncStorage.setItem(SAFETY_KEY, JSON.stringify({ version: SAFETY_VERSION, at: new Date().toISOString() })).catch(() => {});
+  };
+  return [ok, accept] as const;
+}
+
 const USER_AGENT = `SkyHunt/${APP_VERSION} (${Platform.OS} ${Platform.Version}; ${String((Platform.constants as Record<string, unknown>).Model ?? '')})`;
 
 export default function CameraScreen({ active }: { active: boolean }) {
   const { list, saveNew, identify, reveal, toast } = useApp();
   const { hasPermission, requestPermission } = useCameraPermission();
+  const [safetyOk, acceptSafety] = useSafety();
   // iPhone : appareil « virtuel » qui passe tout seul de l'ultra grand-angle au téléobjectif selon le zoom.
   // Android : la caméra arrière par défaut (logique) fait déjà ce passage ; le filtre y est risqué car
   // les caméras physiques ne sont pas décrites et le tri peut retenir une caméra secondaire.
@@ -198,6 +218,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
         registryModel: null,
         userAgent: USER_AGENT,
         zoom: Math.round(factor * 10) / 10,
+        // Jeton à usage unique (anti-triche) : prouve au serveur que la photo n'est pas antidatée.
+        captureToken: valid ? takeCaptureToken() : null,
       };
 
       if (!valid) {
@@ -220,6 +242,19 @@ export default function CameraScreen({ active }: { active: boolean }) {
   }, [busy, detection, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
 
   /* ---------------- Rendu ---------------- */
+  if (safetyOk === null) return <View style={st.center} />;
+  if (!safetyOk) {
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={st.safety}>
+        <Text style={st.safetyTitle}>Avant de chasser</Text>
+        {SAFETY_TEXT.map((t) => <Text key={t} style={st.safetyItem}>•  {t}</Text>)}
+        <Text style={st.safetyNote}>Tu es responsable de respecter les lois et règlements du lieu où tu te trouves.</Text>
+        <Pressable style={[st.btn, { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 14 }]} onPress={acceptSafety}>
+          <Text style={st.btnText}>J’ai compris</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
   if (!hasPermission) {
     return (
       <View style={st.center}>
@@ -332,6 +367,10 @@ const st = StyleSheet.create({
   text: { color: C.text, fontSize: 16, textAlign: 'center', marginBottom: 16 },
   btn: { backgroundColor: C.accent, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10 },
   btnText: { color: '#fff', fontWeight: '700' },
+  safety: { padding: 24, paddingTop: 60, flexGrow: 1, justifyContent: 'center' },
+  safetyTitle: { color: '#fbbf24', fontSize: 22, fontWeight: '800', marginBottom: 16 },
+  safetyItem: { color: C.text, fontSize: 16, lineHeight: 23, marginBottom: 10 },
+  safetyNote: { color: C.muted, fontSize: 13, marginTop: 6, marginBottom: 22 },
   box: { position: 'absolute', borderWidth: 3, borderRadius: 6 },
   boxLabel: { position: 'absolute', top: -22, left: -3, color: '#000', fontSize: 12, fontWeight: '700', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
   topBar: { position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', gap: 8 },

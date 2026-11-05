@@ -1,4 +1,4 @@
-name: Mettre à jour le registre canadien
+name: Mettre à jour les registres (Canada, États-Unis)
 
 on:
   workflow_dispatch:
@@ -6,29 +6,55 @@ on:
     - cron: '17 7 * * 1'   # chaque lundi
   push:
     branches: [main]
-    paths: ['tools/build_registre.py', '.github/workflows/registre.yml']
+    paths: ['tools/build_registre.py', 'tools/build_registre_us.py', '.github/workflows/registre.yml']
 
 permissions:
   contents: write
+  actions: write   # relancer la publication Pages (un commit du robot ne la déclenche pas tout seul)
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # ---- Canada (Transport Canada)
       - name: Télécharger le registre de Transport Canada
+        id: ca
+        continue-on-error: true
         run: |
           curl -fsSL -A "SkyHunt-registre/1.0" -o ccarcsdb.zip \
             https://wwwapps.tc.gc.ca/saf-sec-sur/2/ccarcs-riacc/download/ccarcsdb.zip
           unzip -o ccarcsdb.zip -d ccar
           ls -la ccar
       - name: Construire web/data/registre-ca.json
+        if: steps.ca.outcome == 'success'
         run: python3 tools/build_registre.py ccar
+
+      # ---- États-Unis (FAA). Le fichier contient des noms et adresses de propriétaires : le script ne les lit
+      # pas, et ni le zip ni les fichiers extraits ne sont enregistrés dans le dépôt (seul registre-us.json l'est).
+      - name: Télécharger le registre de la FAA
+        id: us
+        continue-on-error: true
+        run: |
+          curl -fsSL --retry 3 -A "Mozilla/5.0 (compatible; SkyHunt-registre/1.0)" -o faa.zip \
+            https://registry.faa.gov/database/ReleasableAircraft.zip
+          unzip -o faa.zip MASTER.txt ACFTREF.txt -d faa
+          ls -la faa
+      - name: Construire web/data/registre-us.json
+        if: steps.us.outcome == 'success'
+        run: python3 tools/build_registre_us.py faa
+
       - name: Enregistrer si changé
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add web/data/registre-ca.json
-          git diff --cached --quiet || git commit -m "Registre canadien mis à jour ($(date -u +%F))"
+          if [ -f web/data/registre-us.json ]; then git add web/data/registre-us.json; fi
+          if git diff --cached --quiet; then echo "Aucun changement"; exit 0; fi
+          git commit -m "Registres canadien et américain mis à jour ($(date -u +%F))"
           git pull --rebase -q origin main
           git push
+          gh workflow run pages.yml --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}

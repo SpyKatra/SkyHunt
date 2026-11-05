@@ -7,6 +7,11 @@
 | `migrations/20261103000000_comptes_et_captures.sql` | Tables `profiles` et `captures`, règles RLS, mesures figées, suppression du compte, compartiment photo `captures` |
 | `migrations/20261104000000_anti_ecran.sql` | Mesures anti-triche « photo d'écran » (`moire`, `screen_object`), figées comme les autres |
 | `migrations/20261104120000_classements.sql` | Classements (`leaderboard`), points recalculés par le serveur (`my_scores`), rareté des lieux, copie du catalogue (`aircraft_types`, `rarities`) |
+| `migrations/20261105120000_amis.sql` | Amis par code ami fixe, demandes à accepter / refuser, relance 48 h, classement entre amis |
+| `migrations/20261105130000_profil_fige.sql` | Pseudo et pays fixés à la création |
+| `migrations/20261106120000_anti_triche.sql` | Jetons de capture, photos en double, avertissement militaire (voir « Anti-triche ») |
+| `functions/photo-hash/` | Fonction Edge : empreinte de chaque photo envoyée (anti-doublons) |
+| `seed.sql` | Base **locale** seulement : la fonction Edge locale au lieu de celle en ligne |
 | `templates/code.html` | Courriel « Ton code SkyHunt » (code à 6 chiffres) |
 | `config.toml` | Configuration de l'instance locale (`npx supabase start`) |
 
@@ -46,6 +51,23 @@
   effacée avant (sinon on pourrait relancer tout de suite).
 - Tables dans le schéma `private` (inaccessible à l'API) ; tout passe par ces fonctions.
 
+## Anti-triche (`20261106120000_anti_triche.sql`)
+
+- **Jetons de capture** : `issue_capture_tokens(n)` distribue des jetons à usage unique (20 au plus en réserve,
+  200 par jour, valables 7 jours). L'app en garde une réserve et en met un dans chaque photo valide. Une capture
+  avec un jeton valide (à soi, pas encore utilisé, émis avant la photo) est `verified` et compte à son heure de
+  prise de vue, même envoyée plus tard (hors ligne) ; sans jeton, elle compte à son **heure de réception**
+  (`private.counted_at`) : antidater une capture ne fait plus gagner la rareté d'un lieu ni un mois passé.
+  `verified` et `capture_token` sont figés.
+- **Photos en double** : à chaque photo reçue, le déclencheur `captures_hash_request` appelle (pg_net) la fonction
+  Edge `photo-hash`, qui calcule une empreinte (miniature 16 × 12 en gris, normalisée) et la passe à
+  `record_photo_hash` (réservé au serveur). Ressemblance ≥ 0,9 avec la photo **d'un autre envoi** (n'importe quel
+  joueur) = double : 0 point, pas de carte au classement (`my_scores.duplicate`). Recompression et
+  redimensionnement ne changent pas l'empreinte. `request_missing_hashes()` relance les photos sans empreinte.
+- **Militaire** : `aircraft_types.military` (8 types) ; une capture militaire sans `military_ack_at`
+  (avertissement accepté dans l'app) vaut 0 point.
+- L'adresse de la fonction Edge est dans `private.settings` (`photo_hash_url`) ; `seed.sql` la remplace en local.
+
 ## Pseudo et pays fixés
 
 Depuis `20261105130000_profil_fige.sql`, un joueur crée son profil une fois et ne peut plus le modifier.
@@ -72,6 +94,14 @@ Pour un changement demandé au support : tableau de bord Supabase → Table Edit
 6. **Project Settings → API Keys** : copier l'URL du projet et la clé **publishable** (`sb_publishable_…`)
    dans `web/cloud-config.js`. Jamais la clé secrète.
 7. Pousser : GitHub Pages republie l'app ; la section « Compte » apparaît dans Profil.
+8. **Fonction Edge `photo-hash`** (anti-doublons, depuis `20261106120000_anti_triche.sql`), depuis la racine du dépôt :
+   ```bash
+   npx supabase@3.0.0 login
+   npx supabase@3.0.0 functions deploy photo-hash --project-ref jujomunxljjjrtetqvoe
+   ```
+   (`verify_jwt = false` est lu dans `config.toml` : c'est la base qui l'appelle, et elle ne fait que recalculer
+   l'empreinte d'une photo existante.) Ensuite, dans le SQL Editor, pour les photos déjà envoyées :
+   `select public.request_missing_hashes();`
 
 ### Courriels : configuration actuelle
 
@@ -103,6 +133,7 @@ cd tests && npm install && npx playwright install chromium
 node tests/cloud.js               # règles du serveur (34 contrôles)
 node tests/leaderboard.js         # classements et points du serveur = web/game.js (27 contrôles)
 node tests/friends.js             # amis : codes, demandes, refus + relance 48 h, limite d'essais (45 contrôles)
+node tests/anti-triche.js         # jetons, captures antidatées, militaire, photos en double (fonction Edge locale)
 node tests/e2e-cloud.js           # app + serveur : 2 « téléphones », synchro, suppression (web servi sur :8766)
 ```
 

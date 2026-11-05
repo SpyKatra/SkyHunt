@@ -34,7 +34,7 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | **Anti-triche serveur** : jetons de capture à usage unique (sans jeton = compté à l'heure de réception), photos en double (empreinte calculée par la fonction Edge `photo-hash`, ressemblance ≥ 0,9 = 0 point) | `web/cloud.js`, `supabase/migrations/20261106120000_anti_triche.sql`, `supabase/functions/photo-hash/` |
 | **Avertissement militaire** (avant qu'un type militaire compte) et consigne de sécurité au 1er lancement de la caméra ; listes de pays **provisoires** | `web/military.js`, `web/ui-identify.js`, `native/src/IdentifySheet.tsx` |
 | Registre de la FAA (États-Unis) : marque N… → modèle → type, chargé au besoin | `web/registry.js`, `tools/build_registre_us.py`, `web/data/registre-us.json` |
-| **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. Pas encore compilée sur un téléphone | `native/` (voir `native/README.md`) |
+| **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. APK Android testé par Spy (Samsung S23), mises à jour par `eas update`. **Analyse de la photo prise** (plus de détection en direct) | `native/` (voir `native/README.md`), `native/src/photoAnalysis.ts` |
 
 ### Règle de points (document de projet)
 
@@ -53,6 +53,8 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   de `web/game.js` doit être reportée dans une nouvelle migration (`tests/leaderboard.js` compare les deux).
 
 ## Décisions et contraintes à respecter
+
+- **Analyse après la photo** (décision de Spy, 2026-11-05) : l'app native n'analyse plus le flux vidéo en direct. Sur Samsung S23, ce flux (1440×1080, « binning ») arrivait à l'envers au modèle (Resizer : « left » tourné de 270° au lieu de 90°), contenait un faux motif de couleur de 4 px (pics de moiré toujours en (±32, 32)) et ne montrait pas la trame des écrans. La photo prise est analysée (`photoAnalysis.ts` : modèle sur 320×320, moiré sur 3 carrés de 128 px à pleine résolution, médiane), le verdict s'affiche tout de suite et la caméra reste ouverte. Seuil du moiré sur photo **à recalibrer** avec de vraies mesures. `useAircraftDetector.ts`, vision-camera-resizer et le frame processor sont à retirer à la prochaine version compilée.
 
 - **Familles et séries** (décision de Spy, 2026-11-04) : la carte, la rareté et le +5 restent par famille ; chaque série
   a un identifiant `famille.clé` (ex. `b737-800.900er`) **à ne jamais renommer** (enregistré dans les captures). Après un

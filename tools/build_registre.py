@@ -8,9 +8,12 @@ Usage : python3 tools/build_registre.py <dossier contenant carscurr.txt>
 Le fichier produit ne contient AUCUNE donnée sur les propriétaires :
 seulement la marque (C-XXXX), le constructeur, le modèle et le type SkyHunt
 correspondant quand il existe dans le catalogue du jeu.
+Avions de construction amateur et ultralégers : le « constructeur » est souvent le nom d'une personne
+(le constructeur amateur). Il n'est jamais gardé : voir anonymize().
 
 Colonnes utilisées (voir carslayout.txt) :
-  0 MARK, 3 COMMON_NAME (constructeur), 4 MODEL_NAME, 10 AIRCRAFT_CATEGORY_E, 19 AIR_WEIGHT_KILOS
+  0 MARK, 3 COMMON_NAME (constructeur), 4 MODEL_NAME, 8 BASIS_FOR_REGISTRATION, 10 AIRCRAFT_CATEGORY_E,
+  19 AIR_WEIGHT_KILOS
 """
 import collections, csv, datetime, glob, json, os, re, sys
 
@@ -191,6 +194,12 @@ RULES = [
     (r'KITFOX|DENNEY|SKYSTAR|AVID', r'.', 'kitfox'),
     (r'GLASAIR|GLASTAR|STODDARD', r'.', 'glasair'),
     (r'LANCAIR', r'.', 'lancair'),
+    # Construction amateur : le « constructeur » est souvent le nom du particulier ; le kit se lit dans le modèle.
+    (None, r'^(VAN\'?S )?RV-? ?\d', 'vans'),
+    (None, r'^(ZENITH |ZENAIR )?(CH ?\d{3}|ZODIAC)', 'zenith'),
+    (None, r'KITFOX', 'kitfox'),
+    (None, r'GLASAIR|GLASTAR', 'glasair'),
+    (None, r'LANCAIR', 'lancair'),
     (r'FOUND', r'.', 'found'),
     (r'QUEST|KODIAK|DAHER', r'KODIAK|^100\b|^900\b', 'kodiak'),
     (r'HAVILLAND|VIKING', r'DHC-2', 'beaver'),
@@ -259,6 +268,26 @@ def type_for(make, model):
     return None
 
 
+def family_makers():
+    """Constructeur de chaque famille du catalogue (web/fleet.js) : « vans » → « Van’s Aircraft »."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'web', 'fleet.js')
+    found = re.findall(r"^  \['([^']+)', '[^']*', '([^']*)'", open(path, encoding='utf-8').read(), re.M)
+    assert len(found) > 200, 'familles de web/fleet.js introuvables'
+    return dict(found)
+
+
+FAMILY_MAKERS = family_makers()
+
+
+def anonymize(t, model, model_count, label):
+    """Avion amateur ou ultraléger (vie privée) : le constructeur d'origine n'est jamais gardé.
+    Relié à une famille → constructeur de la famille ; modèle gardé seulement s'il est partagé par au moins
+    2 avions (un modèle unique peut contenir un nom). Sinon → « Construction amateur » / « Ultraléger », sans modèle."""
+    if t:
+        return FAMILY_MAKERS.get(t, label), (model if model_count >= 2 else '')
+    return label, ''
+
+
 def clean(s):
     return ' '.join((s or '').split()).upper()
 
@@ -268,30 +297,35 @@ def main(folder):
     models, model_idx, marks = [], {}, {}
     unmapped_heavy = collections.Counter()
     mapped = collections.Counter()
+    planes = []
     with open(path, encoding='latin-1', newline='') as fh:
         for row in csv.reader(fh):
             if len(row) < 20 or not row[0].strip():
                 continue
             if clean(row[10]) not in ('AEROPLANE', 'AÉROPLANE'):
                 continue
-            mark = clean(row[0])
             make = clean(row[3])
-            model = norm_model(make, clean(row[4]))
-            t = type_for(make, model)
-            key = (make, model)
-            if key not in model_idx:
-                model_idx[key] = len(models)
-                models.append([make.title(), model, t])
-            marks[mark] = model_idx[key]
-            if t:
-                mapped[t] += 1
-            else:
-                try:
-                    kg = float(row[19] or 0)
-                except ValueError:
-                    kg = 0
-                if kg >= 5700:
-                    unmapped_heavy[f'{make} | {model}'] += 1
+            planes.append((clean(row[0]), make, norm_model(make, clean(row[4])), row[8].upper(), row[19]))
+    model_count = collections.Counter(p[2] for p in planes)
+    for mark, make, model, basis, weight in planes:
+        t = type_for(make, model)
+        shown = make.title()
+        if 'AMATEUR' in basis or 'ULTRA' in basis:
+            shown, model = anonymize(t, model, model_count[model], 'Construction amateur' if 'AMATEUR' in basis else 'Ultraléger')
+        key = (shown, model)
+        if key not in model_idx:
+            model_idx[key] = len(models)
+            models.append([shown, model, t])
+        marks[mark] = model_idx[key]
+        if t:
+            mapped[t] += 1
+        else:
+            try:
+                kg = float(weight or 0)
+            except ValueError:
+                kg = 0
+            if kg >= 5700:
+                unmapped_heavy[f'{make} | {model}'] += 1
 
     out = {
         'date': datetime.date.today().isoformat(),

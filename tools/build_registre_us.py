@@ -17,7 +17,7 @@ Format (compact : ≈ 250 000 avions) :
 import collections, csv, datetime, glob, json, os, sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from build_registre import norm_model, type_for  # noqa: E402  (mêmes règles que le Canada)
+from build_registre import anonymize, norm_model, type_for  # noqa: E402  (mêmes règles que le Canada)
 
 AIRPLANES = {'4', '5'}  # FAA « TYPE AIRCRAFT » : 4 = Fixed wing single engine, 5 = Fixed wing multi engine
 
@@ -50,28 +50,35 @@ def main(folder):
         make = clean(r.get('MFR'))
         model = norm_model(make, clean(r.get('MODEL')))
         # Appareil non certifié (construction amateur, BUILD-CERT-IND 1) : le « constructeur » est souvent le nom
-        # d'une personne. On ne le garde pas (vie privée) ; aucun type SkyHunt n'est de toute façon concerné.
-        if r.get('BUILD-CERT-IND', '').strip() == '1':
-            make, model = 'CONSTRUCTION AMATEUR', ''
-        ref[r['CODE']] = (make, model, r.get('TYPE-ACFT', ''), r.get('AC-WEIGHT', ''))
+        # d'une personne. Il n'est jamais gardé (vie privée) : voir anonymize() dans build_registre.py.
+        amateur = r.get('BUILD-CERT-IND', '').strip() == '1'
+        ref[r['CODE']] = (make, model, r.get('TYPE-ACFT', ''), r.get('AC-WEIGHT', ''), amateur)
 
-    models, model_idx, groups = [], {}, []
-    mapped = collections.Counter()
-    unmapped_heavy = collections.Counter()
-    n = 0
+    planes = []
     for r in rows(find(folder, 'MASTER.TXT')):
         mark = clean(r.get('N-NUMBER'))
         code = r.get('MFR MDL CODE', '')
         if not mark or code not in ref:
             continue
-        make, model, type_acft, weight = ref[code]
-        if (r.get('TYPE AIRCRAFT') or type_acft) not in AIRPLANES:
+        if (r.get('TYPE AIRCRAFT') or ref[code][2]) not in AIRPLANES:
             continue
+        planes.append((mark, code))
+    model_count = collections.Counter(ref[code][1] for _, code in planes)
+
+    models, model_idx, groups = [], {}, []
+    mapped = collections.Counter()
+    unmapped_heavy = collections.Counter()
+    n = 0
+    for mark, code in planes:
+        make, model, _, weight, amateur = ref[code]
         t = type_for(make, model)
-        key = (make, model)
+        shown = title(make)
+        if amateur:
+            shown, model = anonymize(t, model, model_count[model], 'Construction amateur')
+        key = (shown, model)
         if key not in model_idx:
             model_idx[key] = len(models)
-            models.append([title(make), model, t])
+            models.append([shown, model, t])
             groups.append([])
         groups[model_idx[key]].append(mark)
         n += 1

@@ -61,6 +61,9 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 - **Pas de photo depuis la galerie**, jamais : c'est la base de l'anti-triche.
 - **Aucune donnée de propriétaire** des registres canadien et américain dans le dépôt ou l'app (vie privée).
   `tools/build_registre.py` et `tools/build_registre_us.py` ne gardent que marque, constructeur, modèle, type.
+  Avions de construction amateur et ultralégers : le « constructeur » est souvent le nom du particulier, il n'est
+  **jamais gardé** (`anonymize` : constructeur de la famille de `web/fleet.js` ou « Construction amateur » /
+  « Ultraléger » ; modèle gardé seulement si relié à une famille et partagé par au moins 2 avions).
   Le registre FAA (≈ 60 Mo, noms et adresses) n'est téléchargé que par GitHub Actions, jamais enregistré.
 - Le registre canadien est **très dense** (≈ 30 600 marques sur ≈ 35 000 possibles) : une marque mal lue
   tombe presque toujours sur un autre avion existant. Ne corriger que les confusions « forcées »

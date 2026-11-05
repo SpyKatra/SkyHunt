@@ -142,6 +142,15 @@ function spectralPeak(L, n) {
   // Un pic doit être un maximum local, dépasser le fond de son anneau ET ses voisins dans l'axe
   // radial (sinon c'est une arête droite — aile, horizon — qui fait une crête, pas un pic).
   const rMin = 6;
+  // Fréquences fixes du capteur : sur Samsung S23 (flux vidéo « binning »), un motif de couleur de 4 px
+  // crée TOUJOURS des pics en (±n/4, n/4), sur un vrai avion comme sur un écran, à tout zoom (mesuré le
+  // 2026-11-05). Un écran donne des pics qui bougent avec la distance : on ignore les multiples de n/4.
+  const q = n >> 2;
+  const onGrid = (a) => {
+    'worklet';
+    const m = ((a % q) + q) % q;
+    return m <= 1 || m >= q - 1;
+  };
   const pu = [];
   const pv = [];
   const ps = [];
@@ -150,6 +159,7 @@ function spectralPeak(L, n) {
       if (v === 0 && u < 0) continue; // moitié du plan : le spectre est symétrique
       const r2 = u * u + v * v;
       if (r2 < rMin * rMin) continue;
+      if (onGrid(u) && onGrid(v)) continue;
       const rr = Math.sqrt(r2);
       const r = Math.round(rr);
       if (r > half - 2) continue;

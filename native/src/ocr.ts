@@ -40,12 +40,21 @@ async function readText(uri: string): Promise<string> {
   return lines.join('\n');
 }
 
-/** Lit l'immatriculation : d'abord dans la zone de l'avion, sinon sur toute la photo. */
+/**
+ * Bandes verticales de la zone de l'avion (3, qui se chevauchent) : chacune est agrandie à ~2000 px,
+ * les lettres d'une petite immatriculation (cargo, aviation légère) deviennent ~2 fois plus grandes.
+ */
+function strips(box: Box): Box[] {
+  const w = box.w * 0.4;
+  return [0, 0.3, 0.6].map((f) => ({ x: box.x + box.w * f, y: box.y, w, h: box.h }));
+}
+
+/** Lit l'immatriculation : zone de l'avion, puis bandes agrandies de cette zone, puis toute la photo. */
 export async function readRegistration(photoUri: string, box: Box | null): Promise<OcrResult> {
   const t0 = Date.now();
   if (!isSupported) return { registration: null, score: 0, text: '', ms: 0 };
   let allText = '';
-  for (const zone of box ? [box, null] : [null]) {
+  for (const zone of box ? [box, ...strips(box), null] : [null]) {
     const text = await readText(await prepare(photoUri, zone));
     allText += `${text}\n`;
     const cands = await extractCandidates(text);

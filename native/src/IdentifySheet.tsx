@@ -94,7 +94,13 @@ export default function IdentifySheet() {
         .then((r) => {
           if (my !== session.current) return;
           if (!r.registration) {
-            setAuto({ state: 'none', message: 'Aucune immatriculation lisible sur la photo. Choisis le type ci-dessous ou tape l’immatriculation.' });
+            // Texte lu (diagnostic) : aide à comprendre une immatriculation manquée.
+            const seen = r.text.replace(/\s+/g, ' ').trim().slice(0, 120);
+            setAuto({
+              state: 'none',
+              message: 'Aucune immatriculation lisible sur la photo. Choisis le type ci-dessous ou tape l’immatriculation.'
+                + (seen ? `\n\nTexte lu : « ${seen} »` : '\n\nAucun texte lu.'),
+            });
             return;
           }
           if (!regTouched.current) setReg(r.registration);

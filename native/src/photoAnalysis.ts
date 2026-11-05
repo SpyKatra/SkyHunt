@@ -17,6 +17,7 @@ import { loadTensorflowModel, type TensorflowModel } from 'react-native-fast-tfl
 import { Platform } from 'react-native';
 import { AIRPLANE_CLASS, MODEL_INPUT } from './config';
 import { analyzePatch, findScreenObject, PATCH } from './shared';
+import { readExif } from './exif';
 import type { Detection } from './types';
 
 /** Résultat de l'analyse : la détection (mêmes champs que l'ancienne analyse en direct) + détails du moiré. */
@@ -24,6 +25,8 @@ export type PhotoAnalysis = Detection & {
   /** Moiré de chacun des 3 carrés (dB) et leurs pics, pour le diagnostic. */
   moireAll: number[];
   photoInfo: string;
+  /** Balises EXIF (diagnostic anti-écran : distance du sujet). */
+  exif: string;
 };
 
 /* ---------------- Modèle (chargé une seule fois) ---------------- */
@@ -83,6 +86,7 @@ export async function analyzePhoto(photoUri: string): Promise<PhotoAnalysis> {
   const t0 = Date.now();
   const model = await loadDetector();
   const S = MODEL_INPUT;
+  const exif = (await readExif(photoUri)).summary;
 
   // Dimensions de la photo à l'endroit (orientation EXIF appliquée).
   const upright = await ImageManipulator.manipulate(photoUri).renderAsync();
@@ -113,7 +117,7 @@ export async function analyzePhoto(photoUri: string): Promise<PhotoAnalysis> {
   if (best < 0) {
     return {
       found: false, confidence: 0, box: null, sizeRatio: 0, sharpness: 0, brightness: 0, moire: 0,
-      screenObject: 0, screenClass: -1, inferenceMs: Date.now() - t0, moireMs: -1, moireAll: [], photoInfo: '', ...base,
+      screenObject: 0, screenClass: -1, inferenceMs: Date.now() - t0, moireMs: -1, moireAll: [], photoInfo: '', exif, ...base,
     };
   }
 
@@ -198,6 +202,7 @@ export async function analyzePhoto(photoUri: string): Promise<PhotoAnalysis> {
     moirePeaks,
     moireAll,
     photoInfo,
+    exif,
     screenObject: scr.score,
     screenClass: scr.cls,
     inferenceMs: Date.now() - t0,

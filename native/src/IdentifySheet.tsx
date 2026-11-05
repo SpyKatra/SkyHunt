@@ -96,10 +96,13 @@ export default function IdentifySheet() {
           if (!r.registration) {
             // Texte lu (diagnostic) : aide à comprendre une immatriculation manquée.
             const seen = r.text.replace(/\s+/g, ' ').trim().slice(0, 120);
+            // Erreurs par étape (diagnostic) : seulement les 3 premières, différentes.
+            const errs = Array.from(new Set(r.errors)).slice(0, 3);
             setAuto({
               state: 'none',
               message: 'Aucune immatriculation lisible sur la photo. Choisis le type ci-dessous ou tape l’immatriculation.'
-                + (seen ? `\n\nTexte lu : « ${seen} »` : '\n\nAucun texte lu.'),
+                + (seen ? `\n\nTexte lu : « ${seen} »` : '\n\nAucun texte lu.')
+                + (errs.length ? `\n\nErreurs (${r.errors.length}) :\n${errs.join('\n')}` : ''),
             });
             return;
           }

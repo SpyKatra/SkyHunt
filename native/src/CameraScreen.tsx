@@ -220,6 +220,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
         photoMoire: snapshot.moire,
         photoMoirePeaks: snapshot.moireAll.join(' / '),
         photoMoireInfo: snapshot.photoInfo,
+        exif: snapshot.exif,
         screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },
@@ -340,6 +341,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
               <Text style={st.debugText}>Moiré (écran) : {Math.round(d.moire)} dB (max {thresholds.maxMoire}) · carrés {d.moireAll.join(' / ') || '–'}{d.moirePeaks ? ` · pics ${d.moirePeaks}` : ''}</Text>
               <Text style={st.debugText}>Écran détecté : {d.screenObject ? `${SCREEN_CLASSES[d.screenClass] ?? 'écran'} ${Math.round(d.screenObject * 100)} %` : 'non'}</Text>
               {d.photoInfo ? <Text style={st.debugText}>{d.photoInfo}</Text> : null}
+              <Text style={st.debugText}>{d.exif}</Text>
             </>
           ) : <Text style={st.debugText}>Prends une photo : ses mesures s’afficheront ici.</Text>}
           <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · zoom ×{factor.toFixed(1)} · {USER_AGENT}</Text>

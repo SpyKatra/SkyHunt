@@ -83,6 +83,8 @@ export type Capture = {
   photoMoire?: number | null;
   photoMoirePeaks?: string | null;
   photoMoireInfo?: string | null;
+  /** Diagnostic : balises EXIF de la photo (distance du sujet, focale...). */
+  exif?: string | null;
   screenObject?: number | null;
   box: Box | null;
   thresholds: Thresholds | null;

@@ -1,3 +1,5 @@
+// PLUS UTILISÉ depuis le 2026-11-05 (analyse de la photo prise : photoAnalysis.ts). À retirer avec
+// vision-camera-resizer et le frame processor lors de la prochaine version compilée.
 // Détection d'avion en direct (vision-camera 5 + react-native-worklets).
 //
 // Chaîne par image analysée (~5 par seconde) :

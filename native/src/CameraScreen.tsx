@@ -1,4 +1,5 @@
-// Écran « Chasser » : caméra, détection en direct, zoom optique, capture → identification → révélation.
+// Écran « Chasser » : caméra, zoom optique, photo → analyse de la photo → identification → révélation.
+// Plus d'analyse en direct (décision de Spy, 2026-11-05) : voir photoAnalysis.ts.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
@@ -6,14 +7,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput } from 'react-native-vision-camera';
 import { takeCaptureToken } from './cloud';
+import { analyzePhoto, loadDetector, type PhotoAnalysis } from './photoAnalysis';
 import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SAFETY_TEXT, SAFETY_VERSION, SCREEN_CLASSES } from './shared';
-import { measurePhotoMoire } from './photoMoire';
 import { keepPhoto } from './storage';
 import { useApp } from './store';
 import { C } from './theme';
 import type { Capture } from './types';
 import { Bar } from './ui';
-import { useAircraftDetector } from './useAircraftDetector';
 
 const APP_VERSION = '0.5';
 const SAFETY_KEY = 'skyhunt.safety';
@@ -81,9 +81,15 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const [busy, setBusy] = useState(false);
   const thresholds = DEFAULT_THRESHOLDS;
 
-  const { frameOutput, detection, gpu, gpuError, modelState, modelError } = useAircraftDetector();
-  const outputs = useMemo(() => [photoOutput, frameOutput], [photoOutput, frameOutput]);
-  const check = checkDetection(detection, thresholds);
+  const outputs = useMemo(() => [photoOutput], [photoOutput]);
+  // Dernière photo analysée (diagnostic) et état du modèle (chargé dès l'ouverture de l'écran).
+  const [last, setLast] = useState<PhotoAnalysis | null>(null);
+  const [lastMsg, setLastMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [modelReady, setModelReady] = useState(false);
+  useEffect(() => {
+    loadDetector().then(() => setModelReady(true)).catch((e) => setModelError(e instanceof Error ? e.message : String(e)));
+  }, []);
 
   const stats = useMemo(() => computeStats(list), [list]);
   const lv = levelFor(stats.xp);
@@ -176,9 +182,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
     if (busy) return;
     setBusy(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    // On fige le verdict au moment du déclenchement.
-    const snapshot = detection;
-    const verdict = checkDetection(snapshot, thresholds);
+    setLastMsg(null);
     try {
       const photo = await photoOutput.capturePhotoToFile({ flashMode: 'off', enableShutterSound: false }, {});
       let pos = position.current;
@@ -187,8 +191,10 @@ export default function CameraScreen({ active }: { active: boolean }) {
       }
       const id = `${Date.now()}`;
       const photoUri = await keepPhoto(id, photo.filePath);
-      // Diagnostic : moiré sur la photo en pleine résolution (le flux vidéo est trop lissé pour voir un écran).
-      const pm = await measurePhotoMoire(photoUri, snapshot?.box ?? null, snapshot?.rot ?? 0, snapshot?.aspect ?? 0.75);
+      // Analyse de la photo prise : avion, taille, netteté, luminosité, écran, moiré à pleine résolution.
+      const snapshot = await analyzePhoto(photoUri);
+      setLast(snapshot);
+      const verdict = checkDetection(snapshot, thresholds);
       const mocked = pos?.mocked === true;
       const reasons = [...verdict.reasons];
       if (!pos) reasons.push('Position GPS inconnue');
@@ -210,10 +216,10 @@ export default function CameraScreen({ active }: { active: boolean }) {
         sharpness: snapshot?.sharpness ?? 0,
         brightness: snapshot?.brightness ?? 0,
         moire: snapshot?.moire ?? null,
-        moirePeaks: snapshot?.moirePeaks ?? null,
-        photoMoire: pm ? pm.moire : null,
-        photoMoirePeaks: pm ? pm.peaks : null,
-        photoMoireInfo: pm ? pm.info : null,
+        moirePeaks: snapshot.moirePeaks ?? null,
+        photoMoire: snapshot.moire,
+        photoMoirePeaks: snapshot.moireAll.join(' / '),
+        photoMoireInfo: snapshot.photoInfo,
         screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },
@@ -232,7 +238,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
       if (!valid) {
         await saveNew(record);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-        toast(`Refusée : ${reasons[0] || 'photo non valide'}`);
+        // La caméra reste ouverte : le joueur corrige (zoom, cadrage) et reprend la photo.
+        setLastMsg({ text: `${reasons[0] || 'Photo non valide'} — reprends la photo`, ok: false });
         return;
       }
 
@@ -246,7 +253,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, [busy, detection, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
+  }, [busy, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
 
   /* ---------------- Rendu ---------------- */
   if (safetyOk === null) return <View style={st.center} />;
@@ -280,15 +287,19 @@ export default function CameraScreen({ active }: { active: boolean }) {
     );
   }
 
-  const aspect = detection?.aspect ?? 3 / 4;
-  const box = detection?.found && detection.confidence >= thresholds.minConfidence ? detection.box : null;
-  const boxColor = check.ok ? C.ok : C.warn;
-  const status = camState !== 'en marche' ? `Caméra : ${camState}` : modelState === 'loading' ? 'Chargement du modèle…' : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}` : check.message;
+  const status = camState !== 'en marche' ? `Caméra : ${camState}`
+    : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}`
+    : busy ? 'Analyse de la photo…'
+    : lastMsg ? lastMsg.text
+    : !modelReady ? 'Chargement du modèle…'
+    : 'Vise un avion et prends la photo';
+  const statusColor = lastMsg && !busy ? (lastMsg.ok ? C.ok : C.warn) : C.text;
+  const d = last;
 
   return (
     <View style={st.container} {...responder.panHandlers}>
-      {/* Zone aux proportions exactes de l'image analysée : le cadre suit l'avion. */}
-      <View style={[st.preview, { aspectRatio: aspect }]}>
+      {/* Aperçu 4:3, comme la photo. */}
+      <View style={[st.preview, { aspectRatio: 3 / 4 }]}>
         {/* Montée seulement sur cet onglet : la caméra est entièrement libérée ailleurs. */}
         {active && (
           <Camera
@@ -307,37 +318,31 @@ export default function CameraScreen({ active }: { active: boolean }) {
             onError={onCamError}
           />
         )}
-        {box && (
-          <View pointerEvents="none" style={[st.box, { left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, borderColor: boxColor }]}>
-            <Text style={[st.boxLabel, { backgroundColor: boxColor }]}>Avion {Math.round((detection?.confidence ?? 0) * 100)} %</Text>
-          </View>
-        )}
       </View>
 
       <View style={st.topBar} pointerEvents="box-none">
-        <View style={st.status}><Text style={[st.statusText, { color: check.ok ? C.ok : C.text }]}>{status}</Text></View>
+        <View style={st.status}><Text style={[st.statusText, { color: statusColor }]}>{status}</Text></View>
         <View style={st.level}>
           <Text style={st.levelText}>Niv. {lv.level}</Text>
           <View style={{ width: 44 }}><Bar value={lv.progress} height={4} /></View>
         </View>
       </View>
 
-      {showDebug && detection && (
+      {showDebug && (
         <View style={st.debug}>
-          <Text style={st.debugText}>Confiance : {Math.round(detection.confidence * 100)} % (min {Math.round(thresholds.minConfidence * 100)})</Text>
-          <Text style={st.debugText}>Taille : {Math.round(detection.sizeRatio * 100)} % (min {Math.round(thresholds.minSizeRatio * 100)})</Text>
-          <Text style={st.debugText}>Netteté : {Math.round(detection.sharpness)} (min {thresholds.minSharpness})</Text>
-          <Text style={st.debugText}>
-            Confiance selon la rotation : {detection.rotConf ? detection.rotConf.map((c, i) => `${i * 90}° ${Math.round(c * 100)} %`).join(' · ') : 'mesure…'}
-          </Text>
-          <Text style={st.debugText}>Luminosité : {Math.round(detection.brightness)}</Text>
-          <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire}){detection.moirePeaks ? ` · pics ${detection.moirePeaks}` : ''}</Text>
-          <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
-          <Text style={st.debugText}>
-            Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
-            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · {gpu ? 'GPU' : gpuError ? `CPU (GPU : ${gpuError.slice(0, 60)})` : 'CPU'} · zoom ×{factor.toFixed(1)}
-          </Text>
-          <Text style={st.debugText}>Caméra : {camState} · {detection.cameraFps ?? '?'} i/s reçues · image {detection.frameInfo ?? '?'} · {sessionInfo || 'configuration…'} · {USER_AGENT}</Text>
+          {d ? (
+            <>
+              <Text style={st.debugText}>Dernière photo : {d.frameInfo} · analyse {d.inferenceMs} ms (détection {d.detectMs}{d.moireMs != null && d.moireMs >= 0 ? ` · moiré ${d.moireMs}` : ''})</Text>
+              <Text style={st.debugText}>Confiance : {Math.round(d.confidence * 100)} % (min {Math.round(thresholds.minConfidence * 100)})</Text>
+              <Text style={st.debugText}>Taille : {Math.round(d.sizeRatio * 100)} % (min {Math.round(thresholds.minSizeRatio * 100)})</Text>
+              <Text style={st.debugText}>Netteté : {Math.round(d.sharpness)} (min {thresholds.minSharpness})</Text>
+              <Text style={st.debugText}>Luminosité : {Math.round(d.brightness)}</Text>
+              <Text style={st.debugText}>Moiré (écran) : {Math.round(d.moire)} dB (max {thresholds.maxMoire}) · carrés {d.moireAll.join(' / ') || '–'}{d.moirePeaks ? ` · pics ${d.moirePeaks}` : ''}</Text>
+              <Text style={st.debugText}>Écran détecté : {d.screenObject ? `${SCREEN_CLASSES[d.screenClass] ?? 'écran'} ${Math.round(d.screenObject * 100)} %` : 'non'}</Text>
+              {d.photoInfo ? <Text style={st.debugText}>{d.photoInfo}</Text> : null}
+            </>
+          ) : <Text style={st.debugText}>Prends une photo : ses mesures s’afficheront ici.</Text>}
+          <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · zoom ×{factor.toFixed(1)} · {USER_AGENT}</Text>
           {camErrors.map((m, i) => <Text key={i} style={[st.debugText, { color: C.warn }]}>Erreur {m}</Text>)}
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
         </View>
@@ -361,8 +366,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
         <Pressable onPress={() => setShowDebug((v) => !v)} style={st.smallBtn}>
           <Text style={st.smallBtnText}>{showDebug ? 'Masquer diag.' : 'Diagnostic'}</Text>
         </Pressable>
-        <Pressable onPress={takeCapture} disabled={busy} style={[st.shutter, { borderColor: check.ok ? C.ok : C.muted }]}>
-          {busy ? <ActivityIndicator color="#fff" /> : <View style={[st.shutterInner, { backgroundColor: check.ok ? C.ok : '#E2E8F0' }]} />}
+        <Pressable onPress={takeCapture} disabled={busy || !modelReady} style={[st.shutter, { borderColor: modelReady ? '#E2E8F0' : C.muted }]}>
+          {busy ? <ActivityIndicator color="#fff" /> : <View style={[st.shutterInner, { backgroundColor: modelReady ? '#E2E8F0' : C.muted }]} />}
         </Pressable>
         <View style={{ width: 96 }} />
       </View>

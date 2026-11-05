@@ -9,7 +9,8 @@ import { identify, initIdentify } from './ui-identify.js';
 import { warmUpOcr } from './ocr.js';
 import { bindMapPopupLinks, initMap, renderMap } from './ui-map.js';
 import { initProfile, renderProfile } from './ui-profile.js';
-import { initRanks, invalidateRanks, renderRanks } from './ui-ranks.js';
+import { initFriends, loadFriends, onFriendsChange } from './ui-friends.js';
+import { initRanks, invalidateFriendsRank, invalidateRanks, renderRanks } from './ui-ranks.js';
 import { reveal } from './ui-reveal.js';
 import { checkDetection } from './validation.js';
 import { SCREEN_CLASSES } from './screen.js';
@@ -373,6 +374,8 @@ function showView(name) {
   state.view = name;
   for (const tab of document.querySelectorAll('.tab')) tab.classList.toggle('active', tab.dataset.view === name);
   for (const v of ['camera', 'cards', 'map', 'ranks', 'profile']) $(`view-${v}`).classList.toggle('active', v === name);
+  // Profil : demandes d'amis relues (au plus une fois toutes les 10 s).
+  if (name === 'profile') loadFriends(false, false, 10000);
   refreshView();
 }
 function refreshView() {
@@ -386,11 +389,24 @@ initIdentify();
 initCards({ getList, onChangeType: changeType, onDelete: removeCapture });
 initMap({ getList });
 bindMapPopupLinks(openDetail);
-initRanks({ onGoProfile: () => showView('profile') });
+initRanks({
+  onGoProfile: () => showView('profile'),
+  onGoFriends: () => { showView('profile'); const f = $('friends'); if (f) f.scrollIntoView({ behavior: 'smooth' }); },
+});
+initFriends($('profile-content'));
+onFriendsChange((rankChanged) => {
+  if (rankChanged) invalidateFriendsRank();
+  if (state.view === 'profile') renderProfile({ soft: true }); else if (state.view === 'ranks') renderRanks();
+});
 initProfile({ getList, onCopy: copyData, onClear: clearAll, onAccountChange: async () => { await reload(); refreshView(); } });
 reload();
 
 // Compte et sauvegarde sur le serveur (si configuré dans cloud-config.js).
 initCloud().then(async () => { await reload(); refreshView(); scheduleSync(0); }).catch((e) => console.warn('cloud', e));
-onCloudChange(() => { if (state.view === 'profile') renderProfile({ soft: true }); else if (state.view === 'ranks') renderRanks(); });
+onCloudChange(() => {
+  loadFriends();
+  if (state.view === 'profile') renderProfile({ soft: true }); else if (state.view === 'ranks') renderRanks();
+});
+// Demandes d'amis reçues pendant que l'app était en arrière-plan.
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') loadFriends(); });
 window.addEventListener('skyhunt:pulled', async () => { invalidateRanks(); await reload(); refreshView(); });

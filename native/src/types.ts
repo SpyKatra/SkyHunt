@@ -105,6 +105,12 @@ export type Breakdown = {
 
 /** Ligne d'un classement (fonction serveur `leaderboard`). */
 export type RankRow = { rank: number; pseudo: string; country: string; points: number; captures: number; isMe: boolean };
+/** Ami ou demande : pas de pseudo pour une demande envoyée ou refusée (seulement le code tapé). */
+export type FriendRow = {
+  userId: string; state: 'ami' | 'reçue' | 'envoyée' | 'refusée'; pseudo: string | null; country: string | null; code: string | null;
+  /** Demande refusée : relance possible à partir de cette heure (48 h après le refus). */
+  retryAt: string | null;
+};
 
 /** Capture avec ses points recalculés. */
 export type Scored = Capture & { points: number; breakdown: Breakdown | null };

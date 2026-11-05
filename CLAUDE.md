@@ -28,7 +28,8 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | Points, niveaux, 12 succès, statistiques | `web/game.js` |
 | Écrans : Chasser, Cartes (cartes / album / refusées), Carte (Leaflet + OSM), Classement, Profil | `web/ui-*.js` |
 | Classements mondial / national / du mois, points calculés par le serveur | `web/ui-ranks.js`, `native/src/RanksScreen.tsx`, `supabase/migrations/20261104120000_classements.sql` |
-| Compte (code à 6 chiffres par courriel), profil pseudo + pays ISO, synchro des captures, suppression du compte | `web/cloud.js`, `web/cloud-config.js`, `web/ui-profile.js` |
+| Classement entre amis + gestion des amis dans le **Profil** (code ami fixe, demandes à accepter / refuser) | `web/ui-friends.js`, `native/src/FriendsSection.tsx`, `native/src/friends.ts`, `supabase/migrations/20261105120000_amis.sql` |
+| Compte (code à 6 chiffres par courriel), profil pseudo + pays ISO **fixés à la création**, synchro des captures, suppression du compte | `web/cloud.js`, `web/cloud-config.js`, `web/ui-profile.js`, `supabase/migrations/20261105130000_profil_fige.sql` |
 | Serveur : tables, RLS, mesures figées, photos privées | `supabase/migrations/`, `supabase/README.md` |
 | **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. Pas encore compilée sur un téléphone | `native/` (voir `native/README.md`) |
 
@@ -61,6 +62,14 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   seule l'identification change. Photo envoyée seulement pour les captures valides.
   Toute modification du schéma = **nouvelle** migration dans `supabase/migrations/` (ne pas réécrire l'ancienne).
 - Monétisation sans « pay-to-win » : aucun achat ne doit rapporter de points.
+- **Pseudo et pays** : choisis une seule fois, à la création du compte (décision de Spy, 2026-11-04). Le joueur ne peut
+  plus les modifier (pas de droit UPDATE sur `profiles`) ; changement = demande au support, fait à la main par un
+  administrateur / modérateur (tableau de bord Supabase).
+- **Amis** (décisions de Spy, 2026-11-04) : un **code ami fixe** par compte (8 caractères, pas de changement de code) ;
+  entrer un code envoie une **demande** que l'autre accepte ou refuse (rien ne compte avant l'acceptation, pas de pseudo
+  visible avant) ; une demande refusée ne peut être **relancée par la même personne qu'après 48 h** (l'expéditeur voit
+  « refusée » et le délai) ; au plus 20 codes essayés par heure. La gestion des amis est dans le **Profil** (pastille
+  sur l'onglet Profil), le classement entre amis dans Classement.
 - Natif : les règles du jeu ne sont **pas recopiées** : `native/src/shared.ts` importe `web/catalog.js`, `game.js`,
   `registry.js`, `validation.js`, `config.js` et `cloud-config.js` (Metro `watchFolders`). Ces fichiers doivent rester
   sans DOM. Le registre est embarqué dans l'app et rafraîchi depuis GitHub Pages.
@@ -89,6 +98,7 @@ node tests/e2e.js                              # terminal 2 (Playwright + Chromi
 npx supabase@3.0.0 start                       # serveur local (Docker), puis :
 node tests/cloud.js                            # règles du serveur
 node tests/leaderboard.js                      # classements, points serveur = web/game.js
+node tests/friends.js                          # amis : demandes, refus et relance 48 h, limite d'essais
 node tests/e2e-cloud.js                        # compte + synchro entre 2 « téléphones »
 ```
 
@@ -124,7 +134,8 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    (≈ 500/jour, suffisant pour 5-6 joueurs en développement) ; passer à Resend + nom de domaine avant la bêta.
    Les captures envoyées sont recompressées (JPEG 80 %, 1920 px) ; l'original reste sur le téléphone.
 2. **Classements** : mondial, national (pays du compte), mensuel, rareté des lieux ← **fait** (2026-11-04,
-   migration à appliquer sur le projet en ligne). Reste : classement entre amis (mode d'ajout à choisir avec Spy).
+   migration appliquée en ligne) ; classement entre amis par code ami ← **fait** (2026-11-04, migrations
+   `20261105120000_amis.sql` et `20261105130000_profil_fige.sql` à appliquer sur le projet en ligne).
 3. **Passage en natif** : ← **en cours** (décidé le 2026-11-03 : Expo plutôt que Capacitor, pour le zoom optique,
    la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
    il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).

@@ -1,23 +1,24 @@
-// Écran « Classement » : mondial, national (pays du compte) et du mois, calculés par le serveur
-// (fonction `leaderboard`, voir supabase/migrations/20261104120000_classements.sql et web/ui-ranks.js).
+// Écran « Classement » : mondial, national (pays du compte), du mois et entre amis, calculés par le serveur
+// (supabase/migrations/20261104120000_classements.sql et 20261105120000_amis.sql ; voir aussi web/ui-ranks.js).
+// La gestion des amis (code, demandes) est dans le Profil : src/FriendsSection.tsx.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { fetchLeaderboard } from './cloud';
+import { fetchFriendsLeaderboard, fetchLeaderboard } from './cloud';
+import { incomingCount, useFriends } from './friends';
 import { COUNTRY_NAMES } from './ProfileScreen';
 import { useApp } from './store';
-import { C } from './theme';
+import { C, flag } from './theme';
 import type { RankRow } from './types';
 
-type Scope = 'monde' | 'pays' | 'mois';
+type Scope = 'monde' | 'pays' | 'mois' | 'amis';
 
-/** Drapeau à partir du code ISO (lettres régionales Unicode). */
-export const flag = (cc?: string | null) =>
-  (/^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc!].map((ch) => 0x1f1a5 + ch.charCodeAt(0))) : '');
+export { flag };
 
 const MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
 
 export default function RanksScreen({ onGoProfile }: { onGoProfile: () => void }) {
   const { cloud, list } = useApp();
+  const friends = useFriends();
   const [scope, setScope] = useState<Scope>('monde');
   const [rows, setRows] = useState<RankRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,9 +29,10 @@ export default function RanksScreen({ onGoProfile }: { onGoProfile: () => void }
   const country = cloud.profile?.country ?? null;
   const now = new Date();
   const month = `${now.toISOString().slice(0, 7)}-01`;
-  const key = scope === 'pays' ? `pays:${country}` : scope === 'mois' ? `mois:${month}` : 'monde';
+  const key = scope === 'pays' ? `pays:${country}` : scope === 'mois' ? `mois:${month}` : scope;
   const title = scope === 'pays' ? `${flag(country)} ${COUNTRY_NAMES[country ?? ''] ?? country}`
-    : scope === 'mois' ? `Mois de ${MONTHS[now.getUTCMonth()]} ${now.getUTCFullYear()}` : 'Monde';
+    : scope === 'mois' ? `Mois de ${MONTHS[now.getUTCMonth()]} ${now.getUTCFullYear()}`
+    : scope === 'amis' ? 'Entre amis' : 'Monde';
 
   const load = useCallback(async (force = false) => {
     if (!online) return;
@@ -40,7 +42,8 @@ export default function RanksScreen({ onGoProfile }: { onGoProfile: () => void }
     setLoading(true);
     setError(null);
     try {
-      const r = await fetchLeaderboard(scope === 'pays' ? { country } : scope === 'mois' ? { month } : {});
+      const r = scope === 'amis' ? await fetchFriendsLeaderboard()
+        : await fetchLeaderboard(scope === 'pays' ? { country } : scope === 'mois' ? { month } : {});
       cache.current[key] = { rows: r, at: Date.now() };
       setRows(r);
     } catch (e) {
@@ -54,29 +57,34 @@ export default function RanksScreen({ onGoProfile }: { onGoProfile: () => void }
   // Les points changent après une synchro ou une capture : on relira le classement.
   useEffect(() => { cache.current = {}; }, [list]);
 
+  // Les amis ont changé (Profil) : le classement entre amis sera relu.
+  useEffect(() => { delete cache.current.amis; }, [friends.list]);
+
   if (!online) {
     return (
       <View style={st.empty}>
         <Text style={st.h1}>Classements</Text>
         <Text style={st.muted}>
-          Crée un compte (ou connecte-toi) pour comparer tes points avec les autres chasseurs : classement mondial, national et du mois.
+          Crée un compte (ou connecte-toi) pour comparer tes points avec les autres chasseurs : classement mondial, national, du mois et entre amis.
         </Text>
         <Pressable style={st.btn} onPress={onGoProfile}><Text style={st.btnText}>Aller au compte</Text></Pressable>
       </View>
     );
   }
 
-  const tabs: [Scope, string][] = [['monde', 'Monde'], ['pays', `${flag(country)} Pays`], ['mois', 'Ce mois-ci']];
+  const incoming = incomingCount(friends);
+  const tabs: [Scope, string][] = [['monde', 'Monde'], ['pays', `${flag(country)} Pays`], ['mois', 'Mois'], ['amis', 'Amis']];
   return (
     <ScrollView
       style={{ flex: 1 }}
       contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+      keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={loading && rows != null} onRefresh={() => load(true)} tintColor="#fff" />}
     >
       <View style={st.seg}>
         {tabs.map(([k, l]) => (
           <Pressable key={k} onPress={() => setScope(k)} style={[st.segBtn, scope === k && st.segOn]}>
-            <Text style={[st.segText, scope === k && st.segTextOn]}>{l}</Text>
+            <Text style={[st.segText, scope === k && st.segTextOn]} numberOfLines={1} adjustsFontSizeToFit>{l}</Text>
           </Pressable>
         ))}
       </View>
@@ -101,6 +109,13 @@ export default function RanksScreen({ onGoProfile }: { onGoProfile: () => void }
           </View>
         );
       })}
+      {scope === 'amis' && (
+        <>
+          {rows != null && rows.length <= 1 && <Text style={st.muted}>Ajoute des amis avec ton code ami (dans le Profil) pour vous comparer.</Text>}
+          {incoming > 0 && <Text style={[st.muted, { marginTop: 8 }]}>{incoming} demande{incoming > 1 ? 's' : ''} d'ami en attente.</Text>}
+          <Pressable style={st.btn} onPress={onGoProfile}><Text style={st.btnText}>Gérer mes amis (Profil)</Text></Pressable>
+        </>
+      )}
       <Text style={st.note}>
         Points recalculés par le serveur. Lieu : 5 points pour un lieu jamais capturé, puis moins à mesure que les chasseurs y passent.
         {scope === 'mois' ? ' Mois en temps universel (UTC).' : ''}
@@ -117,7 +132,7 @@ const st = StyleSheet.create({
   btn: { backgroundColor: C.accent, borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 6 },
   btnText: { color: '#fff', fontWeight: '800', fontSize: 15 },
   seg: { flexDirection: 'row', gap: 6, padding: 4, backgroundColor: C.card, borderRadius: 12 },
-  segBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
+  segBtn: { flex: 1, paddingVertical: 9, paddingHorizontal: 4, borderRadius: 9, alignItems: 'center' },
   segOn: { backgroundColor: C.accent },
   segText: { color: C.muted, fontWeight: '700', fontSize: 13 },
   segTextOn: { color: '#fff' },

@@ -2,6 +2,7 @@
 import { RARITIES } from './catalog.js';
 import { achievementState, computeStats, levelFor } from './game.js';
 import { $, esc, toast } from './ui-common.js';
+import { friendsHtml } from './ui-friends.js';
 import {
   cloudState, deleteAccount, saveRemoteProfile, sendCode, signOut, sync, verifyCode,
 } from './cloud.js';
@@ -71,7 +72,8 @@ function accountHtml() {
     return `
     <div class="section settings account" id="account">
       <h2>Créer ton profil</h2>
-      <p class="muted">Ton pseudo est visible dans les classements. Le pays sert au classement national.</p>
+      <p class="muted">Ton pseudo est visible dans les classements. Le pays sert au classement national.
+        <b>Choisis bien : ils ne pourront plus être modifiés ensuite</b> (sauf sur demande au support).</p>
       <label>Pseudo<input id="a-pseudo" maxlength="20" value="${esc(auth.pseudo ?? (p.name === 'Joueur' ? '' : p.name))}" /></label>
       <label>Pays<select id="a-country">${countryOptions(auth.country || p.country)}</select></label>
       <div class="row2">
@@ -136,6 +138,7 @@ function bindAccount() {
     const pseudo = $('a-pseudo').value.trim();
     if (pseudo.length < 2) { toast('Pseudo : au moins 2 caractères.'); return; }
     const country = $('a-country').value;
+    if (!confirm(`Créer ton profil « ${pseudo} » (${COUNTRIES.find((c) => c.code === country)?.name || country}) ? Le pseudo et le pays ne pourront plus être modifiés.`)) return;
     busy(async () => {
       await saveRemoteProfile({ pseudo, country });
       saveProfile({ ...loadProfile(), name: pseudo, country });
@@ -229,12 +232,18 @@ export function renderProfile({ soft = false } = {}) {
 
     ${accountHtml()}
 
+    ${friendsHtml()}
+
     <div class="section settings">
       <h2>Réglages</h2>
-      ${cs.user && !cs.profile ? '' : `
+      ${online ? `
+      <div class="account">
+        <div class="kv"><span>Pseudo</span><b>${esc(p.name)}</b></div>
+        <div class="kv"><span>Pays (classement national)</span><b>${esc(regionName(p.country))}</b></div>
+        <p class="muted">Le pseudo et le pays sont fixés à la création du compte. Pour les modifier, contacte le support.</p>
+      </div>` : cs.user ? '' : `
       <label>Pseudo<input id="p-name" maxlength="20" value="${esc(p.name)}" /></label>
-      <label>Pays du compte (classement national)
-        <select id="p-country">${countryOptions(p.country)}</select></label>`}
+      <label>Pays<select id="p-country">${countryOptions(p.country)}</select></label>`}
       <div class="row2">
         <button id="p-copy">Copier les mesures</button>
         <button id="p-clear" class="danger">Tout effacer</button>
@@ -244,20 +253,13 @@ export function renderProfile({ soft = false } = {}) {
 
   const pName = $('p-name');
   if (pName) {
-    pName.addEventListener('change', async (e) => {
-      const name = e.target.value.trim() || 'Joueur';
-      if (online) {
-        try { await saveRemoteProfile({ pseudo: name, country: loadProfile().country }); } catch (err) { toast(err.message); }
-      }
-      saveProfile({ ...loadProfile(), name: online ? loadProfile().name : name });
+    // Sans compte seulement : pseudo et pays locaux (repris comme proposition à la création du compte).
+    pName.addEventListener('change', (e) => {
+      saveProfile({ ...loadProfile(), name: e.target.value.trim() || 'Joueur' });
       renderProfile();
     });
-    $('p-country').addEventListener('change', async (e) => {
-      const country = e.target.value;
-      if (online) {
-        try { await saveRemoteProfile({ pseudo: loadProfile().name, country }); } catch (err) { toast(err.message); }
-      }
-      saveProfile({ ...loadProfile(), country });
+    $('p-country').addEventListener('change', (e) => {
+      saveProfile({ ...loadProfile(), country: e.target.value });
       renderProfile();
     });
   }

@@ -264,3 +264,23 @@ h1, h2, h3 { margin: 0; }
 .rk-cap { color: var(--muted); font-size: 12px; }
 .rk-pts { min-width: 44px; text-align: right; font-size: 16px; }
 .rk-gap { text-align: center; color: var(--muted); margin: -2px 0 4px; }
+/* Amis */
+.tab { position: relative; }
+.tab .badge { position: absolute; top: 4px; left: calc(50% + 8px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: #ef4444; color: #fff; font-size: 11px; font-weight: 800; line-height: 17px; text-align: center; }
+.friends .muted { color: var(--muted); font-size: 14px; }
+.friends .fnote { font-size: 12px; margin-top: 8px; line-height: 1.4; }
+.fr { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.04); margin-bottom: 6px; }
+.fr-name { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.fr-name em { color: var(--muted); font-style: normal; font-weight: 500; font-size: 13px; }
+.fr button { padding: 7px 11px; border-radius: 9px; font-weight: 700; font-size: 13px; background: var(--card); }
+.fr .fr-ok { background: var(--accent); color: #fff; }
+.fr .fr-no { color: var(--muted); }
+.fr button:disabled { opacity: .5; }
+.fcode { background: var(--card); border-radius: 12px; padding: 12px; margin-bottom: 14px; text-align: center; }
+.fcode .muted { font-size: 13px; }
+.fcode b { display: block; font-size: 28px; letter-spacing: 3px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
+.fcode > button { margin-top: 2px; padding: 10px 16px; border-radius: 10px; background: rgba(255,255,255,.06); font-weight: 600; font-size: 14px; }
+.friends h3 { font-size: 14px; color: var(--muted); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: .5px; }
+.ranks .primary-small { width: 100%; padding: 12px; border-radius: 10px; background: var(--accent); font-weight: 700; font-size: 15px; margin-top: 10px; }
+#f-code { text-transform: uppercase; letter-spacing: 2px; }

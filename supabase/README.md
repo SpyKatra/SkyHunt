@@ -33,6 +33,25 @@
 - **Catalogue** : le serveur a sa copie des raretés. Après un ajout dans `web/catalog.js` :
   `node tools/sql_catalogue.mjs > supabase/migrations/<date>_catalogue.sql` (nouvelle migration).
 
+## Amis
+
+- Chaque compte a **un code ami fixe** de 8 caractères (`my_friend_code()`, créé au premier appel, jamais changé).
+- `request_friend(code)` envoie une demande (→ `'envoyée'`, `'acceptée'` si l'autre m'avait déjà demandé, `'inconnu'`).
+  Au plus 20 codes essayés par heure (un code inconnu n'est pas une erreur, sinon l'essai ne serait pas compté)
+  et 30 demandes en attente.
+- `respond_friend(id, accepter)`, `remove_friend(id)` (retirer un ami ou annuler sa demande), `my_friends()`
+  (états `ami`, `reçue`, `envoyée`, `refusée` + `retry_at`), `friends_leaderboard(p_month)`.
+- Tant qu'une demande n'est pas acceptée, l'expéditeur ne voit pas le pseudo de l'autre (seulement le code tapé).
+- Une demande **refusée** ne peut être relancée par la même personne qu'**après 48 h** ; elle ne peut pas non plus être
+  effacée avant (sinon on pourrait relancer tout de suite).
+- Tables dans le schéma `private` (inaccessible à l'API) ; tout passe par ces fonctions.
+
+## Pseudo et pays fixés
+
+Depuis `20261105130000_profil_fige.sql`, un joueur crée son profil une fois et ne peut plus le modifier.
+Pour un changement demandé au support : tableau de bord Supabase → Table Editor → `profiles`, ou SQL :
+`update public.profiles set pseudo = 'NouveauPseudo' where id = '<id du joueur>';`
+
 ## Mise en ligne (à faire par Spy, une fois)
 
 1. Créer un compte sur <https://supabase.com> puis un projet **skyhunt**, région **Canada (Central)**
@@ -81,8 +100,9 @@ avant d'inviter des testeurs, brancher un SMTP (Resend, Postmark, Amazon SES…)
 ```bash
 npx supabase@3.0.0 start          # à la racine ; Mailpit (courriels reçus) sur http://127.0.0.1:54324
 cd tests && npm install && npx playwright install chromium
-node tests/cloud.js               # règles du serveur (31 contrôles)
+node tests/cloud.js               # règles du serveur (34 contrôles)
 node tests/leaderboard.js         # classements et points du serveur = web/game.js (27 contrôles)
+node tests/friends.js             # amis : codes, demandes, refus + relance 48 h, limite d'essais (45 contrôles)
 node tests/e2e-cloud.js           # app + serveur : 2 « téléphones », synchro, suppression (web servi sur :8766)
 ```
 

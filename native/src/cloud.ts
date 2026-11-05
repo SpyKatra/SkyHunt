@@ -11,7 +11,7 @@ import { AppState } from 'react-native';
 import { SUPABASE_KEY, SUPABASE_URL } from '../../web/cloud-config.js';
 import { compressForUpload } from './ocr';
 import { deleteCapture, downloadPhoto, getCapture, listCaptures, putCapture } from './storage';
-import type { Capture, RankRow } from './types';
+import type { Capture, FriendRow, RankRow } from './types';
 
 const BUCKET = 'captures';
 const DELETES_KEY = 'skyhunt.pendingDeletes';
@@ -139,9 +139,10 @@ async function loadRemoteProfile() {
   st.profileLoaded = true;
 }
 
+/** Création du profil (une seule fois : pseudo et pays ne sont plus modifiables ensuite, sauf par un administrateur). */
 export async function saveRemoteProfile({ pseudo, country }: Profile) {
   const row = { id: st.user!.id, pseudo: pseudo.trim(), country };
-  const { data, error } = await client().from('profiles').upsert(row).select('pseudo, country').single();
+  const { data, error } = await client().from('profiles').insert(row).select('pseudo, country').single();
   if (error) throw new Error(frenchError(error));
   st.profile = data as Profile;
   st.profileLoaded = true;
@@ -343,10 +344,33 @@ export async function fetchLeaderboard({ country = null, month = null, limit = 1
   if (!st.enabled || !st.user) throw new Error('Connecte-toi pour voir les classements.');
   const { data, error } = await client().rpc('leaderboard', { p_country: country, p_month: month, p_limit: limit });
   if (error) throw new Error(frenchError(error));
-  return (data as Row[]).map((r) => ({
-    rank: Number(r.rank), pseudo: r.pseudo, country: r.country, points: Number(r.points), captures: Number(r.captures), isMe: !!r.is_me,
-  }));
+  return (data as Row[]).map(rankRow);
 }
+const rankRow = (r: Row): RankRow => ({
+  rank: Number(r.rank), pseudo: r.pseudo, country: r.country, points: Number(r.points), captures: Number(r.captures), isMe: !!r.is_me,
+});
+
+/* =================== Amis (supabase/migrations/20261105120000_amis.sql) =================== */
+async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
+  if (!st.enabled || !st.user) throw new Error('Connecte-toi d\'abord.');
+  const { data, error } = await client().rpc(fn, args);
+  if (error) throw new Error(frenchError(error));
+  return data as T;
+}
+/** Classement entre amis (moi + amis acceptés) ; month = 'AAAA-MM-01' ou null. */
+export const fetchFriendsLeaderboard = async ({ month = null }: { month?: string | null } = {}) =>
+  (await call<Row[]>('friends_leaderboard', { p_month: month })).map(rankRow);
+export const myFriendCode = () => call<string>('my_friend_code');
+/** Renvoie 'envoyée', 'acceptée' ou 'inconnu'. */
+export const requestFriend = (code: string) => call<'envoyée' | 'acceptée' | 'inconnu'>('request_friend', { p_code: code });
+export const respondFriend = (userId: string, accept: boolean) => call<void>('respond_friend', { p_user: userId, p_accept: accept });
+export const removeFriend = (userId: string) => call<void>('remove_friend', { p_user: userId });
+export const fetchFriends = async (): Promise<FriendRow[]> =>
+  (await call<Row[]>('my_friends')).map((f) => ({
+    userId: f.user_id, state: f.state, pseudo: f.pseudo, country: f.country, code: f.code, retryAt: f.retry_at ?? null,
+  }));
+/** Code affiché en deux blocs : ABCD-EFGH. */
+export const formatFriendCode = (c?: string | null) => (c && c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : c || '');
 
 async function fetchPhoto(id: string, path: string): Promise<string | null> {
   const { data, error } = await client().storage.from(BUCKET).createSignedUrl(path, 300);
@@ -437,7 +461,7 @@ function isAlreadyExists(e: any) {
 
 function frenchError(e: any): string {
   const m = (e && (e.message || e.error_description || e.error)) || String(e);
-  if (e && e.code === '23505') return 'Ce pseudo est déjà pris.';
+  if (e && e.code === '23505') return /pkey/.test(m) ? 'Ton profil existe déjà.' : 'Ce pseudo est déjà pris.';
   if (/expired or is invalid|invalid.*otp|otp.*invalid/i.test(m)) return 'Code invalide ou expiré.';
   if (/rate limit|only request this after|too many/i.test(m)) return 'Trop de demandes : attends un peu avant de réessayer.';
   if (/Failed to fetch|NetworkError|Load failed|Network request failed|network/i.test(m)) return 'Pas de connexion au serveur.';

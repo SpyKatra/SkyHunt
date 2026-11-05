@@ -10,7 +10,7 @@ import { Bar, Btn, Sheet } from './ui';
 import { verifyCode } from './cloud';
 
 // Pays du classement national (codes ISO 3166-1), noms en français.
-const COUNTRY_NAMES: Record<string, string> = {
+export const COUNTRY_NAMES: Record<string, string> = {
   CA: 'Canada', US: 'États-Unis', FR: 'France', BE: 'Belgique', CH: 'Suisse', LU: 'Luxembourg', MC: 'Monaco',
   GB: 'Royaume-Uni', IE: 'Irlande', DE: 'Allemagne', ES: 'Espagne', IT: 'Italie', PT: 'Portugal', NL: 'Pays-Bas',
   AT: 'Autriche', DK: 'Danemark', SE: 'Suède', NO: 'Norvège', FI: 'Finlande', PL: 'Pologne', CZ: 'Tchéquie',

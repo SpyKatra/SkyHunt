@@ -9,16 +9,18 @@ import DetailSheet from './src/DetailSheet';
 import IdentifySheet from './src/IdentifySheet';
 import MapScreen from './src/MapScreen';
 import ProfileScreen from './src/ProfileScreen';
+import RanksScreen from './src/RanksScreen';
 import RevealModal from './src/RevealModal';
 import { AppProvider, useApp } from './src/store';
 import { C } from './src/theme';
 import { Toast } from './src/ui';
 
-type Tab = 'camera' | 'cards' | 'map' | 'profile';
+type Tab = 'camera' | 'cards' | 'map' | 'ranks' | 'profile';
 const TABS: [Tab, string, string][] = [
   ['camera', '◎', 'Chasser'],
   ['cards', '▦', 'Cartes'],
   ['map', '⌖', 'Carte'],
+  ['ranks', '♛', 'Classement'],
   ['profile', '☺', 'Profil'],
 ];
 
@@ -56,13 +58,14 @@ function Main() {
         {tab === 'cards' && <View style={StyleSheet.absoluteFill}><CardsScreen /></View>}
         {/* La carte reste montée une fois ouverte (pas de rechargement des tuiles). */}
         {mapOpened && <View style={[StyleSheet.absoluteFill, tab !== 'map' && st.hidden]} pointerEvents={tab === 'map' ? 'auto' : 'none'}><MapScreen /></View>}
+        {tab === 'ranks' && <View style={StyleSheet.absoluteFill}><RanksScreen onGoProfile={() => setTab('profile')} /></View>}
         {tab === 'profile' && <View style={StyleSheet.absoluteFill}><ProfileScreen /></View>}
       </View>
       <View style={st.tabs}>
         {TABS.map(([k, icon, label]) => (
           <Pressable key={k} style={st.tab} onPress={() => setTab(k)}>
             <Text style={[st.tabIcon, tab === k && st.active]}>{icon}</Text>
-            <Text style={[st.tabText, tab === k && st.active]}>{k === 'cards' && cards ? `${label} (${cards})` : label}</Text>
+            <Text style={[st.tabText, tab === k && st.active]} numberOfLines={1} adjustsFontSizeToFit>{k === 'cards' && cards ? `${label} (${cards})` : label}</Text>
           </Pressable>
         ))}
       </View>

@@ -207,7 +207,7 @@ export function sync() {
         const uid = st.user.id;
         await pushDeletes(uid);
         const pushed = await pushCaptures(uid);
-        const pulled = await pullCaptures(uid);
+        const pulled = (await pullCaptures(uid)) + (await pullScores(uid));
         total = { pushed: total.pushed + pushed, pulled: total.pulled + pulled };
         st.lastSync = new Date();
       } catch (e) {
@@ -295,6 +295,37 @@ async function pullCaptures(uid) {
     if (c.ownerId === uid && c.syncState === 'synced' && !remote.has(c.id)) { await deleteCapture(c.id); n++; }
   }
   return n;
+}
+
+/**
+ * Points de lieu calculés par le serveur (rareté du lieu d'après les captures de tous les joueurs).
+ * Gardés dans la capture locale (`placePoints`) : recomputeAll s'en sert, sinon 1 point.
+ */
+async function pullScores(uid) {
+  const { data, error } = await sb.rpc('my_scores');
+  // Facultatif : sans cette fonction (serveur pas encore à jour), on garde 1 point de lieu sans bloquer la synchro.
+  if (error) { console.warn('my_scores', error.message); return 0; }
+  const byId = new Map(data.map((r) => [r.client_id, r.place_points]));
+  let n = 0;
+  for (const c of await listCaptures()) {
+    if (c.ownerId !== uid || !byId.has(c.id)) continue;
+    const place = byId.get(c.id);
+    if (c.placePoints === place) continue;
+    const now = await getCapture(c.id); // relue : ne pas écraser une modification faite entre-temps
+    if (now) { await addCapture({ ...now, placePoints: place }); n++; }
+  }
+  return n;
+}
+
+/**
+ * Classement : country null = mondial, sinon code ISO ; month = une date du mois (AAAA-MM-JJ) ou null.
+ * Renvoie [{ rank, pseudo, country, points, captures, isMe }].
+ */
+export async function fetchLeaderboard({ country = null, month = null, limit = 100 } = {}) {
+  if (!st.enabled || !st.user) throw new Error('Connecte-toi pour voir les classements.');
+  const { data, error } = await sb.rpc('leaderboard', { p_country: country, p_month: month, p_limit: limit });
+  if (error) throw new Error(frenchError(error));
+  return data.map((r) => ({ rank: Number(r.rank), pseudo: r.pseudo, country: r.country, points: Number(r.points), captures: Number(r.captures), isMe: r.is_me }));
 }
 
 /**

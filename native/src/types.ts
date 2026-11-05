@@ -89,6 +89,8 @@ export type Capture = {
   syncState?: 'pending' | 'synced';
   rev?: number;
   photoPath?: string | null;
+  /** Points de lieu calculés par le serveur (rareté du lieu) ; absent = 1. */
+  placePoints?: number;
 };
 
 export type Breakdown = {
@@ -100,6 +102,9 @@ export type Breakdown = {
   regSeen: boolean;
   repeat: number;
 };
+
+/** Ligne d'un classement (fonction serveur `leaderboard`). */
+export type RankRow = { rank: number; pseudo: string; country: string; points: number; captures: number; isMe: boolean };
 
 /** Capture avec ses points recalculés. */
 export type Scored = Capture & { points: number; breakdown: Breakdown | null };

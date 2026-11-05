@@ -26,7 +26,8 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | Registre de Transport Canada : marque C-XXXX → modèle exact → type SkyHunt | `web/registry.js`, `web/data/registre-ca.json` |
 | Catalogue de 69 types, 5 raretés, aéroports de référence | `web/catalog.js` |
 | Points, niveaux, 12 succès, statistiques | `web/game.js` |
-| Écrans : Chasser, Cartes (cartes / album / refusées), Carte (Leaflet + OSM), Profil | `web/ui-*.js` |
+| Écrans : Chasser, Cartes (cartes / album / refusées), Carte (Leaflet + OSM), Classement, Profil | `web/ui-*.js` |
+| Classements mondial / national / du mois, points calculés par le serveur | `web/ui-ranks.js`, `native/src/RanksScreen.tsx`, `supabase/migrations/20261104120000_classements.sql` |
 | Compte (code à 6 chiffres par courriel), profil pseudo + pays ISO, synchro des captures, suppression du compte | `web/cloud.js`, `web/cloud-config.js`, `web/ui-profile.js` |
 | Serveur : tables, RLS, mesures figées, photos privées | `supabase/migrations/`, `supabase/README.md` |
 | **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. Pas encore compilée sur un téléphone | `native/` (voir `native/README.md`) |
@@ -35,11 +36,14 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 
 `Score = (P_appareil + P_lieu) × Q × R + Bonus`
 - P_appareil : Commun 2, Peu commun 5, Rare 10, Épique 20, Légendaire 30.
-- P_lieu : **1 point fixe pour l'instant** (la rareté locale viendra avec le serveur).
+- P_lieu : rareté du lieu, calculée par le serveur (`my_scores`) : captures valides de tous les joueurs à moins de 5 km
+  faites avant celle-ci : aucune → 5, 1-9 → 3, 10-49 → 2, 50+ → 1. Gardée dans `placePoints` ; sans compte : 1.
 - Q = 1,2 si photo excellente (confiance ≥ 0,8 et taille ≥ 0,4), sinon 1.
 - R selon le nombre de captures précédentes du même type : 1 ; 0,5 ; 0,25 ; puis 0,1.
 - Bonus +5 pour un nouveau type. Même immatriculation déjà capturée = 0 point.
 - Les points sont **recalculés** à chaque chargement (`recomputeAll`) : ne pas les stocker comme vérité.
+  Le serveur refait le même calcul pour les classements (`private.scored_captures`) : toute modification des règles
+  de `web/game.js` doit être reportée dans une nouvelle migration (`tests/leaderboard.js` compare les deux).
 
 ## Décisions et contraintes à respecter
 
@@ -84,6 +88,7 @@ python3 tests/make_video.py                    # crée tests/cam.y4m (Pillow + f
 node tests/e2e.js                              # terminal 2 (Playwright + Chromium)
 npx supabase@3.0.0 start                       # serveur local (Docker), puis :
 node tests/cloud.js                            # règles du serveur
+node tests/leaderboard.js                      # classements, points serveur = web/game.js
 node tests/e2e-cloud.js                        # compte + synchro entre 2 « téléphones »
 ```
 
@@ -118,8 +123,8 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    Envoyer les captures, garder un cache local. ← **fait** (2026-11-03). Courriels : SMTP Gmail de Spy
    (≈ 500/jour, suffisant pour 5-6 joueurs en développement) ; passer à Resend + nom de domaine avant la bêta.
    Les captures envoyées sont recompressées (JPEG 80 %, 1920 px) ; l'original reste sur le téléphone.
-2. **Classements** : mondial, national (pays du compte), mensuel, amis ; rareté des lieux calculée
-   à partir des captures (remplace P_lieu = 1).
+2. **Classements** : mondial, national (pays du compte), mensuel, rareté des lieux ← **fait** (2026-11-04,
+   migration à appliquer sur le projet en ligne). Reste : classement entre amis (mode d'ajout à choisir avec Spy).
 3. **Passage en natif** : ← **en cours** (décidé le 2026-11-03 : Expo plutôt que Capacitor, pour le zoom optique,
    la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
    il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).

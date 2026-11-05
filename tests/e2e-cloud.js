@@ -102,6 +102,31 @@ function check(name, ok, extra = '') {
   await shot(p1, '2-compte');
   check('profil créé + cartes envoyées', /À jour/.test(await status(p1)), await status(p1));
   check('pseudo affiché', (await p1.textContent('.profile-hero h1')) === pseudo);
+  // Points de lieu reçus du serveur → points de la carte et XP recalculés.
+  await p1.click('#a-sync');
+  await waitSynced(p1);
+  await p1.waitForTimeout(500);
+  await p1.click('[data-view="cards"]');
+  await p1.waitForTimeout(300);
+  const pts1 = await p1.textContent('#cards-content .card .card-pts');
+  await p1.click('[data-view="profile"]');
+  const xp1 = Number((await p1.textContent('.xp-line span')).replace(/\D/g, ''));
+  console.log('   points de la carte :', pts1, '| XP :', xp1);
+
+  // ---------- Classement
+  await p1.click('[data-view="ranks"]');
+  await p1.waitForSelector('#r-list .rk.me', { timeout: 15000 });
+  const meRow = (await p1.textContent('#r-list .rk.me')).replace(/\s+/g, ' ');
+  await shot(p1, '2b-classement');
+  check('classement mondial : ma ligne avec mes points', meRow.includes(pseudo) && Number(await p1.textContent('#r-list .rk.me .rk-pts')) === xp1,
+    `${meRow} / XP ${xp1}`);
+  await p1.click('[data-scope="pays"]');
+  await p1.waitForSelector('#r-list .rk.me', { timeout: 15000 });
+  check('classement national (Canada)', (await p1.textContent('.ranks h2')).includes('Canada'), await p1.textContent('.ranks h2'));
+  await p1.click('[data-scope="mois"]');
+  await p1.waitForSelector('#r-list .rk.me', { timeout: 15000 });
+  check('classement du mois', Number(await p1.textContent('#r-list .rk.me .rk-pts')) === xp1);
+  await shot(p1, '2c-classement-mois');
 
   // ---------- Téléphone 2 : récupération
   const p2 = await phone('tél2');
@@ -114,7 +139,7 @@ function check(name, ok, extra = '') {
   check('photo récupérée', /blob:/.test(bg));
   await shot(p2, '3-cartes-tel2');
   const pts = await p2.textContent('#cards-content .card .card-pts');
-  check('points recalculés à l\'identique', pts === '12 pts', pts);
+  check('points recalculés à l\'identique (lieu inclus)', pts === pts1, `${pts} / ${pts1}`);
 
   // ---------- Suppression sur le 2, propagation au 1
   await p2.click('#cards-content .card');

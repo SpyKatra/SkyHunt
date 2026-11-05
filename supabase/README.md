@@ -6,6 +6,7 @@
 | --- | --- |
 | `migrations/20261103000000_comptes_et_captures.sql` | Tables `profiles` et `captures`, règles RLS, mesures figées, suppression du compte, compartiment photo `captures` |
 | `migrations/20261104000000_anti_ecran.sql` | Mesures anti-triche « photo d'écran » (`moire`, `screen_object`), figées comme les autres |
+| `migrations/20261104120000_classements.sql` | Classements (`leaderboard`), points recalculés par le serveur (`my_scores`), rareté des lieux, copie du catalogue (`aircraft_types`, `rarities`) |
 | `templates/code.html` | Courriel « Ton code SkyHunt » (code à 6 chiffres) |
 | `config.toml` | Configuration de l'instance locale (`npx supabase start`) |
 
@@ -18,6 +19,19 @@
 - **Photos** : compartiment privé `captures`, chemin `<id du compte>/<id local>.jpg`, JPEG ≤ 6 Mo,
   impossibles à remplacer. Seules les captures **valides** envoient leur photo.
 - Chaque joueur ne lit et n'écrit que ses propres données. Rien n'est lisible sans compte.
+
+## Classements (étape 2)
+
+- `leaderboard(p_country, p_month, p_limit)` : mondial (`p_country` nul), national (code ISO), du mois (`p_month` = une date
+  du mois, UTC). Renvoie rang, pseudo, pays, points, nombre de cartes et la ligne du joueur connecté. Rien d'autre
+  (ni position, ni capture) n'est visible des autres joueurs ; il faut un compte.
+- `my_scores()` : points de lieu et points de chacune de mes captures, calculés par le serveur.
+- Les points sont calculés par la vue `private.scored_captures` (schéma inaccessible à l'API) avec les règles de
+  `web/game.js` ; `tests/leaderboard.js` vérifie que serveur et app donnent les mêmes points.
+- **Points de lieu** : captures valides de tous les joueurs à moins de 5 km, faites avant celle-ci :
+  aucune → 5, 1 à 9 → 3, 10 à 49 → 2, 50 et plus → 1.
+- **Catalogue** : le serveur a sa copie des raretés. Après un ajout dans `web/catalog.js` :
+  `node tools/sql_catalogue.mjs > supabase/migrations/<date>_catalogue.sql` (nouvelle migration).
 
 ## Mise en ligne (à faire par Spy, une fois)
 
@@ -67,7 +81,8 @@ avant d'inviter des testeurs, brancher un SMTP (Resend, Postmark, Amazon SES…)
 ```bash
 npx supabase@3.0.0 start          # à la racine ; Mailpit (courriels reçus) sur http://127.0.0.1:54324
 cd tests && npm install && npx playwright install chromium
-node tests/cloud.js               # règles du serveur (28 contrôles)
+node tests/cloud.js               # règles du serveur (31 contrôles)
+node tests/leaderboard.js         # classements et points du serveur = web/game.js (27 contrôles)
 node tests/e2e-cloud.js           # app + serveur : 2 « téléphones », synchro, suppression (web servi sur :8766)
 ```
 

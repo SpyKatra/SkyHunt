@@ -11,7 +11,7 @@ import { AppState } from 'react-native';
 import { SUPABASE_KEY, SUPABASE_URL } from '../../web/cloud-config.js';
 import { compressForUpload } from './ocr';
 import { deleteCapture, downloadPhoto, getCapture, listCaptures, putCapture } from './storage';
-import type { Capture } from './types';
+import type { Capture, RankRow } from './types';
 
 const BUCKET = 'captures';
 const DELETES_KEY = 'skyhunt.pendingDeletes';
@@ -227,7 +227,7 @@ export function sync(): Promise<{ pushed: number; pulled: number }> {
         const uid = st.user!.id;
         await pushDeletes(uid);
         const pushed = await pushCaptures(uid);
-        const pulled = await pullCaptures(uid);
+        const pulled = (await pullCaptures(uid)) + (await pullScores(uid));
         total = { pushed: total.pushed + pushed, pulled: total.pulled + pulled };
         st.lastSync = new Date();
       } catch (e) {
@@ -318,6 +318,34 @@ async function pullCaptures(uid: string) {
     if (c.ownerId === uid && c.syncState === 'synced' && !remote.has(c.id)) { await deleteCapture(c.id); n++; }
   }
   return n;
+}
+
+/**
+ * Points de lieu calculés par le serveur (rareté du lieu d'après les captures de tous les joueurs).
+ * Gardés dans la capture locale (`placePoints`) : recomputeAll s'en sert, sinon 1 point.
+ */
+async function pullScores(uid: string) {
+  const { data, error } = await client().rpc('my_scores');
+  // Facultatif : sans cette fonction (serveur pas encore à jour), on garde 1 point de lieu sans bloquer la synchro.
+  if (error) { console.warn('my_scores', error.message); return 0; }
+  const byId = new Map((data as Row[]).map((r) => [r.client_id as string, r.place_points as number]));
+  let n = 0;
+  for (const c of await listCaptures()) {
+    if (c.ownerId !== uid || !byId.has(c.id) || c.placePoints === byId.get(c.id)) continue;
+    const now = await getCapture(c.id); // relue : ne pas écraser une modification faite entre-temps
+    if (now) { await putCapture({ ...now, placePoints: byId.get(c.id) }); n++; }
+  }
+  return n;
+}
+
+/** Classement : country null = mondial, sinon code ISO ; month = une date du mois (AAAA-MM-JJ) ou null. */
+export async function fetchLeaderboard({ country = null, month = null, limit = 100 }: { country?: string | null; month?: string | null; limit?: number } = {}): Promise<RankRow[]> {
+  if (!st.enabled || !st.user) throw new Error('Connecte-toi pour voir les classements.');
+  const { data, error } = await client().rpc('leaderboard', { p_country: country, p_month: month, p_limit: limit });
+  if (error) throw new Error(frenchError(error));
+  return (data as Row[]).map((r) => ({
+    rank: Number(r.rank), pseudo: r.pseudo, country: r.country, points: Number(r.points), captures: Number(r.captures), isMe: !!r.is_me,
+  }));
 }
 
 async function fetchPhoto(id: string, path: string): Promise<string | null> {

@@ -100,8 +100,9 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 - Natif 0.6 : **patchs** (`native/patches/`, patch-package au `postinstall`) :
   `expo-text-extractor` utilise ML Kit **embarqué** (`com.google.mlkit:text-recognition`) et ses erreurs donnent la pile.
   ML Kit plantait sur Samsung S23 (« getClass() on a null object reference ») en version services Google **et** embarquée :
-  erreur à la création du lecteur, un composant interne de ML Kit arrive vide. Cause probable, à confirmer : R8, actif par
-  défaut dans le modèle Expo. **R8 désactivé en 0.7** (`enableMinifyInReleaseBuilds: false` dans `app.json`) ;
+  erreur à la création du lecteur, un composant interne de ML Kit arrive vide. Cause : R8, actif par défaut dans le modèle
+  Expo. **R8 désactivé en 0.7** (`enableMinifyInReleaseBuilds: false` dans `app.json`), lecture confirmée sur S23 le
+  2026-11-05 (C-FJEP → Saab 340B) : **ne pas le réactiver** sans règles de conservation pour ML Kit ni test sur téléphone ;
   `react-native-vision-camera` (Android) lit `LENS_FOCUS_DISTANCE` (dioptries) et le renvoie dans
   `controller.lensPosition` (+ 1000 × calibration, -1 inconnu) : diagnostic anti-écran (l'EXIF du S23 n'a pas la distance).
   Mettre à jour ces paquets = refaire les patchs.

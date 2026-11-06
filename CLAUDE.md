@@ -105,6 +105,10 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   `react-native-vision-camera` (Android) lit `LENS_FOCUS_DISTANCE` (dioptries) et le renvoie dans
   `controller.lensPosition` (+ 1000 × calibration, -1 inconnu) : diagnostic anti-écran (l'EXIF du S23 n'a pas la distance).
   Mettre à jour ces paquets = refaire les patchs.
+- Natif : **mode de collecte** (`native/src/dataset.ts`, bouton à droite du déclencheur quand le diagnostic est ouvert, Android) : photos
+  étiquetées `reel_*` / `ecran_*` + fiche JSON sans GPS, pour entraîner un détecteur d'écran. Rien n'est envoyé ; à récupérer par adb dans
+  `/sdcard/Android/data/com.spykatra.skyhunt/files/`. Le mode « écran » ne crée pas de capture, le mode « réel » garde la capture normale.
+  **À retirer de l'interface avant la bêta.**
 - Natif : **ne pas lier la caméra à `AppState`** : sur Android, l'ouverture de la caméra fait passer l'app un instant en
   « background » → boucle de redémarrages (écran noir, lag, fermetures ; vu au logcat le 2026-11-04). Sur Android, prendre
   la caméra arrière par défaut (pas de filtre `physicalDevices`). Débogage : adb sans fil (voir `native/README.md`).

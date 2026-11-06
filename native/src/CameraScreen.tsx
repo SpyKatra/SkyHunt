@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
 import { takeCaptureToken } from './cloud';
+import { COLLECT_AVAILABLE, countSamples, dropPhoto, saveSample, type CollectLabel } from './dataset';
 import { analyzePhoto, loadDetector, type PhotoAnalysis } from './photoAnalysis';
 import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SAFETY_TEXT, SAFETY_VERSION, SCREEN_CLASSES } from './shared';
 import { keepPhoto } from './storage';
@@ -94,6 +95,13 @@ export default function CameraScreen({ active }: { active: boolean }) {
   const started = useRef(false);
   const camRef = useRef<CameraRef>(null);
   const [lastFocus, setLastFocus] = useState('');
+  // Mode de collecte (dataset.ts) : toujours désactivé au lancement de l'app.
+  const [collect, setCollect] = useState<CollectLabel | null>(null);
+  const [collected, setCollected] = useState<Record<CollectLabel, number> | null>(null);
+  const nextCollect = useCallback(() => {
+    setCollect((c) => (c === null ? 'reel' : c === 'reel' ? 'ecran' : null));
+    try { setCollected(countSamples()); } catch (e) { setLastMsg({ text: `Collecte : ${(e as Error).message}`, ok: false }); }
+  }, []);
   const onStarted = useCallback(() => { console.log('[SkyHunt] session démarrée'); started.current = true; setCamState('en marche'); }, []);
   const onStopped = useCallback(() => { console.log('[SkyHunt] session arrêtée'); started.current = false; setCamState('arrêtée'); }, []);
   const onInterrupted = useCallback((r: unknown) => setCamState(`interrompue (${String(r)})`), []);
@@ -217,6 +225,22 @@ export default function CameraScreen({ active }: { active: boolean }) {
       // Analyse de la photo prise : avion, taille, netteté, luminosité, écran, moiré à pleine résolution.
       const snapshot = await analyzePhoto(photoUri);
       setLast(snapshot);
+      if (collect) {
+        await saveSample(collect, photoUri, {
+          takenAt: new Date().toISOString(), device: USER_AGENT, zoom: factor, width: photo.width, height: photo.height,
+          focus: focus.text, focusDistance: Number.isFinite(focus.meters) ? focus.meters : null, exif: snapshot.exif,
+          found: snapshot.found, confidence: snapshot.confidence, sizeRatio: snapshot.sizeRatio, box: snapshot.box,
+          sharpness: snapshot.sharpness, brightness: snapshot.brightness, moire: snapshot.moire, moireAll: snapshot.moireAll,
+          screenObject: snapshot.screenObject,
+        });
+        setCollected(countSamples());
+        if (collect === 'ecran') {
+          // Photo d'écran pour l'entraînement : ce n'est pas une capture, aucun point, rien dans les cartes.
+          dropPhoto(photoUri);
+          setLastMsg({ text: 'Photo d’écran enregistrée pour l’entraînement', ok: true });
+          return;
+        }
+      }
       const verdict = checkDetection({ ...snapshot, focusDistance: focus.meters }, thresholds);
       const mocked = pos?.mocked === true;
       const reasons = [...verdict.reasons];
@@ -278,7 +302,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, [busy, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
+  }, [busy, collect, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
 
   /* ---------------- Rendu ---------------- */
   if (safetyOk === null) return <View style={st.center} />;
@@ -370,6 +394,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
               <Text style={st.debugText}>{lastFocus}</Text>
             </>
           ) : <Text style={st.debugText}>Prends une photo : ses mesures s’afficheront ici.</Text>}
+          {collected ? <Text style={st.debugText}>Collecte : {collected.reel} réel · {collected.ecran} écran</Text> : null}
           <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · zoom ×{factor.toFixed(1)} · {USER_AGENT}</Text>
           {camErrors.map((m, i) => <Text key={i} style={[st.debugText, { color: C.warn }]}>Erreur {m}</Text>)}
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
@@ -397,7 +422,13 @@ export default function CameraScreen({ active }: { active: boolean }) {
         <Pressable onPress={takeCapture} disabled={busy || !modelReady} style={[st.shutter, { borderColor: modelReady ? '#E2E8F0' : C.muted }]}>
           {busy ? <ActivityIndicator color="#fff" /> : <View style={[st.shutterInner, { backgroundColor: modelReady ? '#E2E8F0' : C.muted }]} />}
         </Pressable>
-        <View style={{ width: 96 }} />
+        {showDebug && COLLECT_AVAILABLE ? (
+          <Pressable onPress={nextCollect} style={[st.smallBtn, collect ? { backgroundColor: C.warn } : null]}>
+            <Text style={[st.smallBtnText, collect ? { color: '#000', fontWeight: '700' } : null]}>
+              {collect === 'reel' ? 'Collecte : réel' : collect === 'ecran' ? 'Collecte : écran' : 'Collecte : non'}
+            </Text>
+          </Pressable>
+        ) : <View style={{ width: 96 }} />}
       </View>
     </View>
   );

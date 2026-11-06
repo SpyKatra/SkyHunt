@@ -1,0 +1,74 @@
+# Compile l'app native pour iPhone SANS signature (pas de compte Apple Developer), pour l'installer avec Sideloadly.
+# Se lance à chaque push dans la branche ios-sideload, ou à la main. Le fichier SkyHunt.ipa est dans les artefacts du job.
+# Pour un test personnel seulement : la signature par identifiant Apple gratuit expire après 7 jours.
+name: iPhone sans signature (Sideloadly)
+
+on:
+  push:
+    branches: [ios-sideload]
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: native
+        shell: bash -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: native/package-lock.json
+
+      - name: Choisit le Xcode le plus récent
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
+
+      - name: Installe les dépendances
+        run: npm ci 2>&1 | tee "$RUNNER_TEMP/etape.log"
+
+      - name: Génère le projet iOS
+        run: npx expo prebuild --platform ios --no-install 2>&1 | tee "$RUNNER_TEMP/etape.log"
+
+      - name: Installe les pods
+        working-directory: native/ios
+        run: pod install 2>&1 | tee "$RUNNER_TEMP/etape.log"
+
+      - name: Compile sans signature
+        working-directory: native/ios
+        run: |
+          xcodebuild -workspace SkyHunt.xcworkspace -scheme SkyHunt -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 \
+            | tee "$RUNNER_TEMP/etape.log" | grep -E "error:|warning: unable|\*\* BUILD|^Build " || true
+          grep -q "BUILD SUCCEEDED" "$RUNNER_TEMP/etape.log"
+
+      - name: Crée le fichier IPA
+        working-directory: native/ios
+        run: |
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/SkyHunt.app Payload/
+          zip -qry SkyHunt.ipa Payload
+          ls -lh SkyHunt.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkyHunt-ipa
+          path: native/ios/SkyHunt.ipa
+          retention-days: 7
+
+      # Les journaux ne sont pas lisibles sans compte : les erreurs sont aussi publiées en annotation.
+      - name: Résume l'erreur
+        if: failure()
+        run: |
+          f="$RUNNER_TEMP/etape.log"
+          [ -f "$f" ] || exit 0
+          m=$( (grep -E "error:|Error:|\[!\]|fatal|BUILD FAILED" "$f" | tail -25; echo ---; tail -15 "$f") | cut -c1-220 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+          echo "::error title=Erreur de compilation::$m"

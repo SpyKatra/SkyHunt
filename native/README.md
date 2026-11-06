@@ -1,4 +1,4 @@
-# SkyHunt — app native 0.5 (iOS et Android)
+# SkyHunt — app native 0.7 (iOS et Android)
 
 La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte que la version web.
 
@@ -8,9 +8,9 @@ La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte
 | --- | --- | --- |
 | Caméra intégrée | Seule source de photos (pas de galerie, permission bloquée sur Android) | `src/CameraScreen.tsx` |
 | **Zoom optique** | Boutons 0,5× / 1× / 2× / 3× / 5× / 10× selon le téléphone, et pincement ; passe tout seul sur le téléobjectif | `src/CameraScreen.tsx` |
-| Détection en direct | EfficientDet-Lite0, ~5 analyses/s, cadre vert/orange | `src/useAircraftDetector.ts` |
-| Vraie photo | Pleine résolution, même proportion 4:3 que l'analyse | `src/CameraScreen.tsx` |
-| Anti-triche « photo d'écran » | Écran détecté autour de l'avion ou moiré coloré (`web/screen.js`, calculé dans le frame processor) | `src/useAircraftDetector.ts` |
+| Analyse de la photo prise | EfficientDet-Lite0 sur la photo, verdict en moins d'une seconde, caméra toujours ouverte | `src/photoAnalysis.ts` |
+| Vraie photo | Pleine résolution, 4:3 | `src/CameraScreen.tsx` |
+| Anti-triche « photo d'écran » | Écran détecté autour de l'avion, moiré coloré sur la photo (`web/screen.js`), distance de mise au point (Android, règle à activer) | `src/photoAnalysis.ts`, `src/CameraScreen.tsx` |
 | Lecture de l'immatriculation | Apple Vision (iPhone) / Google ML Kit (Android), puis registre de Transport Canada | `src/ocr.ts`, `src/IdentifySheet.tsx` |
 | Cartes, album, refusées, détail | Comme sur le web | `src/CardsScreen.tsx`, `src/DetailSheet.tsx` |
 | Révélation animée + vibrations | Points, niveau, succès | `src/RevealModal.tsx` |
@@ -24,16 +24,17 @@ Modifier une règle dans `web/` la change dans les deux versions.
 
 ## Versions épinglées (branche `sdk-58`)
 
-Expo SDK 58, React Native 0.88.1, vision-camera 5.2.4 avec react-native-vision-camera-worklets et
-react-native-vision-camera-resizer 5.2.4, react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2,
+Expo SDK 58, React Native 0.88.1, vision-camera 5.2.4 avec react-native-vision-camera-worklets 5.2.4,
+react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2,
 fast-tflite 3.0.1. Ne pas les mettre à jour sans tester sur un vrai téléphone (voir CLAUDE.md).
 Autres : supabase-js 2.118.0, async-storage, url-polyfill, expo-image-manipulator, expo-text-extractor 2.0.0,
 react-native-webview 14, expo-haptics (versions données par `npx expo install`).
 
-**Détection en direct (vision-camera 5)** : `src/useAircraftDetector.ts`. Le Resizer (GPU) remet l'image à l'endroit
-en 320×320 pour le modèle ; s'il n'est pas disponible (Android sans Vulkan), un repli lit les plans YUV en JavaScript.
-Le carré de 128 px du moiré est lu à pleine résolution dans les plans YUV. Le diagnostic indique « GPU » ou « CPU ».
-`patch-package` reste branché (`postinstall`) pour d'éventuels correctifs dans `patches/` ; celui de vision-camera 4 a été retiré.
+**Analyse de la photo** : `src/photoAnalysis.ts` (voir la décision du 2026-11-05 dans CLAUDE.md). Plus de frame processor ni de Resizer.
+
+**Correctifs** (`patches/`, appliqués par `patch-package` au `postinstall`) : ML Kit embarqué et erreurs détaillées dans
+expo-text-extractor ; distance de mise au point Android dans vision-camera. R8 est **désactivé** dans `app.json` : il faisait
+planter ML Kit.
 
 ## Installation (une seule fois, sur le PC)
 

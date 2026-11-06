@@ -36,19 +36,21 @@ function useSafety() {
 const USER_AGENT = `SkyHunt/${APP_VERSION} (${Platform.OS} ${Platform.Version}; ${String((Platform.constants as Record<string, unknown>).Model ?? '')})`;
 
 /**
- * Distance de mise au point lisible (diagnostic anti-écran).
+ * Distance de mise au point : texte du diagnostic et mètres pour la validation.
  * Android (vision-camera patché) : dioptries (1 / mètres) + 1000 × calibration, -1 si inconnue.
+ * Sans calibration, Android ne donne pas de vraies dioptries : pas de mètres, donc pas de refus.
  * iPhone : position de l'objectif d'Apple, de 0 (le plus près) à 1 (le plus loin), pas une distance.
  */
-function focusText(v: number | undefined): string {
-  if (v == null) return 'Mise au point : caméra pas prête';
-  if (Platform.OS === 'ios') return `Mise au point : objectif ${v.toFixed(3)} (0 = près, 1 = loin)`;
-  if (v < 0) return 'Mise au point : inconnue';
+function focusInfo(v: number | undefined): { text: string; meters: number | null } {
+  if (v == null) return { text: 'Mise au point : caméra pas prête', meters: null };
+  if (Platform.OS === 'ios') return { text: `Mise au point : objectif ${v.toFixed(3)} (0 = près, 1 = loin)`, meters: null };
+  if (v < 0) return { text: 'Mise au point : inconnue', meters: null };
   const cal = Math.floor(v / 1000);
   const d = v - cal * 1000;
   const calName = ['non calibrée', 'approximative', 'calibrée'][cal] ?? `?${cal}`;
   const m = d > 0.001 ? `≈ ${(1 / d).toFixed(2)} m` : 'infini';
-  return `Mise au point : ${d.toFixed(3)} D ${m} (${calName})`;
+  const meters = cal === 0 ? null : d > 0.001 ? 1 / d : Infinity;
+  return { text: `Mise au point : ${d.toFixed(3)} D ${m} (${calName})`, meters };
 }
 
 export default function CameraScreen({ active }: { active: boolean }) {
@@ -203,8 +205,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
     setLastMsg(null);
     try {
       // Distance de mise au point juste avant la photo (diagnostic anti-écran, version 0.6).
-      const focus = focusText(camRef.current?.controller?.lensPosition);
-      setLastFocus(focus);
+      const focus = focusInfo(camRef.current?.controller?.lensPosition);
+      setLastFocus(focus.text);
       const photo = await photoOutput.capturePhotoToFile({ flashMode: 'off', enableShutterSound: false }, {});
       let pos = position.current;
       if (!pos) {
@@ -215,7 +217,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
       // Analyse de la photo prise : avion, taille, netteté, luminosité, écran, moiré à pleine résolution.
       const snapshot = await analyzePhoto(photoUri);
       setLast(snapshot);
-      const verdict = checkDetection(snapshot, thresholds);
+      const verdict = checkDetection({ ...snapshot, focusDistance: focus.meters }, thresholds);
       const mocked = pos?.mocked === true;
       const reasons = [...verdict.reasons];
       if (!pos) reasons.push('Position GPS inconnue');
@@ -242,7 +244,7 @@ export default function CameraScreen({ active }: { active: boolean }) {
         photoMoirePeaks: snapshot.moireAll.join(' / '),
         photoMoireInfo: snapshot.photoInfo,
         exif: snapshot.exif,
-        focus,
+        focus: focus.text,
         screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },

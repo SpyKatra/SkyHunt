@@ -10,7 +10,7 @@ mondial et national (pays choisi à la création du compte).
 - Version web en ligne : https://spykatra.github.io/SkyHunt/ (publiée par GitHub Actions à chaque push dans `web/` ;
   réglage Pages → Source = « GitHub Actions », sinon le README est publié à la place).
 
-## État actuel : prototype 0.4 (novembre 2026)
+## État actuel : web 0.4, app native 0.7 (novembre 2026)
 
 Tout tourne **sur le téléphone** (IndexedDB, hors ligne possible). Avec un compte, les captures sont
 envoyées sur Supabase et récupérées sur les autres appareils. Projet en ligne `jujomunxljjjrtetqvoe` (ca-central-1),
@@ -34,7 +34,7 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
 | **Anti-triche serveur** : jetons de capture à usage unique (sans jeton = compté à l'heure de réception), photos en double (empreinte calculée par la fonction Edge `photo-hash`, ressemblance ≥ 0,9 = 0 point) | `web/cloud.js`, `supabase/migrations/20261106120000_anti_triche.sql`, `supabase/functions/photo-hash/` |
 | **Avertissement militaire** (avant qu'un type militaire compte) et consigne de sécurité au 1er lancement de la caméra ; listes de pays **provisoires** | `web/military.js`, `web/ui-identify.js`, `native/src/IdentifySheet.tsx` |
 | Registre de la FAA (États-Unis) : marque N… → modèle → type, chargé au besoin | `web/registry.js`, `tools/build_registre_us.py`, `web/data/registre-us.json` |
-| **App native 0.5** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. APK Android testé par Spy (Samsung S23), mises à jour par `eas update`. **Analyse de la photo prise** (plus de détection en direct) | `native/` (voir `native/README.md`), `native/src/photoAnalysis.ts` |
+| **App native 0.7** (Expo) : tous les écrans du web + zoom optique, vraie photo, OCR Apple Vision / ML Kit, même compte Supabase. APK Android testé par Spy (Samsung S23), lecture d'immatriculation confirmée, mises à jour par `eas update`. **Analyse de la photo prise** (plus de détection en direct) | `native/` (voir `native/README.md`), `native/src/photoAnalysis.ts` |
 
 ### Règle de points (document de projet)
 
@@ -93,10 +93,9 @@ migration appliquée, testé par Spy sur iPhone le 2026-11-03 (voir `supabase/RE
   `registry.js`, `validation.js`, `config.js` et `cloud-config.js` (Metro `watchFolders`). Ces fichiers doivent rester
   sans DOM. Le registre est embarqué dans l'app et rafraîchi depuis GitHub Pages.
 - Natif : versions **épinglées** dans `native/` (branche `sdk-58`, décidé par Spy le 2026-11-04 après des fermetures
-  de l'app sur Android en SDK 56) : Expo SDK 58, RN 0.88, vision-camera 5.2.4 (+ -worklets, -resizer 5.2.4),
+  de l'app sur Android en SDK 56) : Expo SDK 58, RN 0.88, vision-camera 5.2.4 (+ -worklets 5.2.4),
   react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2, fast-tflite 3.0.1.
-  Pas de mise à jour sans tester sur un vrai téléphone. Frame processor = `useFrameOutput({ onFrame })` :
-  appeler `frame.dispose()`, état entre images dans `globalThis` du worklet, retour à JS par `scheduleOnRN`.
+  Pas de mise à jour sans tester sur un vrai téléphone.
 - Natif 0.6 : **patchs** (`native/patches/`, patch-package au `postinstall`) :
   `expo-text-extractor` utilise ML Kit **embarqué** (`com.google.mlkit:text-recognition`) et ses erreurs donnent la pile.
   ML Kit plantait sur Samsung S23 (« getClass() on a null object reference ») en version services Google **et** embarquée :
@@ -145,6 +144,12 @@ de près 14 à 30 dB ; écrans de loin ou flous non détectés). Seuil 12 dB. Il
 de vrais avions (surtout de près, hublots nets) et des avions sur écran d'ordinateur / téléphone.
 La luminance n'est **pas** utilisée : une rangée de hublots nets y crée des pics comme un écran.
 La vidéo de test passe par un faux « capteur » (flou + bruit) : une image dessinée brute ressemble à un écran.
+Sur les photos du S23, le moiré ne sépare **pas** les écrans (7 à 15 dB) des vrais avions (6 à 9 dB).
+
+**Distance de mise au point (anti-écran, Android)** : `minFocusDistance` dans `web/config.js`, en mètres, **0 = règle désactivée**.
+Mesures sur S23 : écran de près 0,15 à 0,17 m, bout d'une pièce 2,2 m, vrai avion **pas encore mesuré**. Activer la règle
+après cette mesure (seuil envisagé ≈ 1 m) par `eas update`. Limite : reculer à 2 m et zoomer passe quand même. Sur iPhone, pas de
+distance (position d'objectif de 0 à 1, à calibrer) ; sans calibration Android non plus : la règle ne s'applique pas.
 
 ## Automatisations GitHub
 
@@ -165,12 +170,12 @@ La vidéo de test passe par un faux « capteur » (flou + bruit) : une image des
    migration appliquée en ligne) ; classement entre amis par code ami ← **fait** (2026-11-04, migrations
    `20261105120000_amis.sql` et `20261105130000_profil_fige.sql` à appliquer sur le projet en ligne).
 3. **Passage en natif** : ← **en cours** (décidé le 2026-11-03 : Expo plutôt que Capacitor, pour le zoom optique,
-   la vraie photo et l'OCR natif ; iPhone + Android). Code 0.5 écrit et assemblé (`expo export`), pas encore compilé :
-   il faut le compte Expo de Spy (`eas login`, `eas init`) et son compte Apple Developer (inscription en cours).
+   la vraie photo et l'OCR natif ; iPhone + Android). Android : 0.7 compilée et testée sur Samsung S23 (2026-11-05).
+   iPhone : pas encore compilé, il faut le compte Apple Developer de Spy (inscription en cours).
    Distribution : APK par lien pour Android, TestFlight pour iPhone.
    **Mise à jour d'Expo** (2026-11-04) : la SDK 56 (vision-camera 4) fermait l'app sur Android (aperçu noir puis
-   plantage natif). Spy a demandé de passer directement à la SDK 58 + vision-camera 5 : branche `sdk-58`, à tester
-   sur Android avant de la fusionner dans `main`.
+   plantage natif). Spy a demandé de passer directement à la SDK 58 + vision-camera 5 : branche `sdk-58`, testée
+   sur Android puis fusionnée dans `main` (2026-11-05).
 4. **Anti-triche serveur** : (anti-écran sur le téléphone : fait le 2026-11-03) jeton de capture à usage unique et
    empreinte anti-doublons ← **faits** (2026-11-04, migration `20261106120000_anti_triche.sql` + fonction Edge
    `photo-hash` à mettre en ligne) ; reste : signature, App Attest / Play Integrity, plus tard recoupement ADS-B

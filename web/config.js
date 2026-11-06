@@ -9,6 +9,9 @@ export const DEFAULT_THRESHOLDS = {
   // Anti-triche « photo d'écran » (web/screen.js). Seuils prudents, à calibrer avec de vraies photos.
   maxMoire: 12,          // pics du spectre de la couleur, en dB (photos réelles testées : ≤ 10)
   maxScreenObject: 0.4,  // confiance d'un écran (télé, portable, téléphone) détecté autour de l'avion
+  // Distance de mise au point minimale, en mètres (app native Android seulement). 0 = règle désactivée :
+  // à régler après une mesure sur un vrai avion (écran de près : 0,15 à 0,17 m ; bout d'une pièce : 2,2 m).
+  minFocusDistance: 0,
 };
 
 export const DETECTION_INTERVAL_MS = 200; // ~5 analyses par seconde

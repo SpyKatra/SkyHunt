@@ -21,6 +21,8 @@ export type Detection = {
   rotConf?: number[];
   /** Diagnostic : positions des deux pics du moiré (« Cb u,v u,v », cycles par carré de 128 px). */
   moirePeaks?: string;
+  /** Distance de mise au point en mètres, si le téléphone la donne de façon fiable. */
+  focusDistance?: number | null;
   /** Quarts de tour (sens horaire) qui remettent l'image du capteur à l'endroit. */
   rot?: number;
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
@@ -44,6 +46,7 @@ export type Thresholds = {
   minBrightness: number;
   maxBrightness: number;
   maxMoire: number;
+  minFocusDistance: number;
   maxScreenObject: number;
 };
 

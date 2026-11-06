@@ -16,6 +16,10 @@ export const C = {
   gold: '#f59e0b',
 };
 
+/** Drapeau à partir du code ISO (lettres régionales Unicode). */
+export const flag = (cc?: string | null) =>
+  (/^[A-Z]{2}$/.test(cc || '') ? String.fromCodePoint(...[...cc!].map((ch) => 0x1f1a5 + ch.charCodeAt(0))) : '');
+
 export const fmtDate = (iso: string, withTime = false) => {
   const d = new Date(iso);
   return withTime

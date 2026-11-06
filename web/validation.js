@@ -17,6 +17,11 @@ export function checkDetection(d, t) {
     screen = true;
   }
   if (screen) message = 'Photo d’écran refusée — vise un vrai avion';
+  // Sujet trop proche pour être un vrai avion (distance connue seulement dans l'app native Android).
+  if (t.minFocusDistance > 0 && d.focusDistance != null && d.focusDistance < t.minFocusDistance) {
+    reasons.push(`Sujet trop proche (${d.focusDistance.toFixed(2).replace('.', ',')} m)`);
+    if (reasons.length === 1) message = 'Sujet trop proche — vise un vrai avion';
+  }
   if (d.sizeRatio < t.minSizeRatio) {
     reasons.push(`Avion trop petit (${Math.round(d.sizeRatio * 100)} % < ${Math.round(t.minSizeRatio * 100)} %)`);
     if (reasons.length === 1) message = 'Trop loin — rapproche-toi';

@@ -2,7 +2,7 @@
 import type { ReactNode } from 'react';
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { getType, nearestAirport, RARITIES } from './shared';
+import { cardName, getType, nearestAirport, RARITIES } from './shared';
 import { C, fmtDate } from './theme';
 import type { Capture, Scored } from './types';
 
@@ -69,7 +69,7 @@ export function CardTile({ c, showPoints = true, onPress, width }: { c: Scored; 
         {showPoints && <View style={s.cardPts}><Text style={s.cardPtsText}>{c.points} pts</Text></View>}
       </View>
       <View style={s.cardBody}>
-        <Text style={s.cardName} numberOfLines={1}>{t.name}</Text>
+        <Text style={s.cardName} numberOfLines={1}>{cardName(c)}</Text>
         <Text style={s.cardMaker} numberOfLines={1}>{t.maker}{c.registration ? ` · ${c.registration}` : ''}</Text>
         <View style={s.cardFoot}>
           <Text style={s.cardFootText}>{placeLabel(c)}</Text>
@@ -102,11 +102,20 @@ export function LockedTile({ typeId, width, onPress }: { typeId: string; width: 
 export function Breakdown({ c }: { c: Scored }) {
   const b = c.breakdown;
   if (!b) return null;
+  if (b.blocked) {
+    return (
+      <View style={s.breakdown}>
+        <View style={s.bLine}><Text style={s.bKey}>{b.blocked}</Text><Text style={s.bVal}>0 pt</Text></View>
+        <View style={[s.bLine, s.bTotal]}><Text style={s.bTotalText}>Total</Text><Text style={s.bTotalText}>0 pt</Text></View>
+      </View>
+    );
+  }
   const fr = (n: number) => String(n).replace('.', ',');
   const lines: [string, string][] = [['Appareil', `${b.aircraft} pts`], ['Lieu', `${b.place} pt`]];
   if (b.Q !== 1) lines.push(['Photo excellente', `×${fr(b.Q)}`]);
   if (b.R !== 1) lines.push([`Déjà capturé ${b.repeat} fois`, `×${fr(b.R)}`]);
   if (b.bonus) lines.push(['Nouveau type dans ta flotte', `+${b.bonus}`]);
+  if (b.seriesBonus) lines.push([`Nouvelle série : ${b.series}`, `+${b.seriesBonus}`]);
   if (b.regSeen) lines.push(['Immatriculation déjà capturée', '0 pt']);
   return (
     <View style={s.breakdown}>

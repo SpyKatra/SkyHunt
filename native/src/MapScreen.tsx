@@ -1,8 +1,13 @@
 // Carte du monde des captures (web/ui-map.js) : Leaflet + tuiles OpenStreetMap dans une WebView.
 // Pas de clé Google Maps nécessaire. Leaflet est servi par notre propre site (GitHub Pages).
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ComponentType, type Ref, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { WebView, type WebViewMessageEvent } from 'react-native-webview';
+import { WebView as RNWebView, type WebViewMessageEvent, type WebViewProps } from 'react-native-webview';
+
+// react-native-webview 14 : le type par défaut de la classe (P = undefined) rend toutes les props
+// « never » ; on le retype simplement.
+type WebHandle = { injectJavaScript(script: string): void };
+const WebView = RNWebView as unknown as ComponentType<WebViewProps & { ref?: Ref<WebHandle> }>;
 import { getType, RARITIES } from './shared';
 import { useApp } from './store';
 import { C, fmtDate } from './theme';
@@ -42,7 +47,7 @@ const HTML = `<!doctype html><html><head><meta charset="utf-8">
 
 export default function MapScreen() {
   const { list, openDetail } = useApp();
-  const web = useRef<WebView>(null);
+  const web = useRef<WebHandle>(null);
   const [ready, setReady] = useState(false);
 
   const items = useMemo(() => list

@@ -1,11 +1,18 @@
 // Fiche « Quel avion as-tu capturé ? » (équivalent de web/ui-identify.js)
 // 1. L'immatriculation est lue automatiquement sur la photo (reconnaissance de texte du téléphone).
-// 2. Si c'est une marque canadienne, le registre de Transport Canada donne le modèle exact.
+// 2. Si c'est une marque canadienne (C-) ou américaine (N), le registre de Transport Canada ou de la FAA
+//    donne le modèle exact.
 // 3. Le joueur confirme d'une touche, ou choisit lui-même dans le catalogue.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import * as Location from 'expo-location';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { cloudState } from './cloud';
 import { readRegistration } from './ocr';
-import { AIRCRAFT, CATEGORIES, getType, lookupRegistration, normalizeRegistration, RARITIES, type Lookup } from './shared';
+import {
+  acceptMilitary, AIRCRAFT, CATEGORIES, getType, lookupRegistration, MILITARY_FORBIDDEN_TEXT, MILITARY_WARNING,
+  militaryGate, normalizeRegistration, notFoundMessage, RARITIES, REGISTRY_NAMES, seriesOf, type Lookup,
+} from './shared';
+import type { Capture } from './types';
 import { useApp } from './store';
 import { C } from './theme';
 import { Btn, Sheet } from './ui';
@@ -16,6 +23,41 @@ type Auto =
   | { state: 'none'; message: string }
   | { state: 'found'; registration: string; source: string; lookup: Lookup | null };
 
+/** Pays où la photo a été prise (position de la capture), sinon celui du profil, sinon inconnu. */
+async function captureCountry(c: Capture): Promise<string | null> {
+  if (c.latitude != null && c.longitude != null) {
+    try {
+      const [place] = await Location.reverseGeocodeAsync({ latitude: c.latitude, longitude: c.longitude });
+      if (place?.isoCountryCode) return place.isoCountryCode.toUpperCase();
+    } catch { /* hors ligne : on se rabat sur le profil */ }
+  }
+  return cloudState().profile?.country ?? null;
+}
+
+const ask = (title: string, message: string, buttons: { text: string; value: boolean; style?: 'cancel' }[]) =>
+  new Promise<boolean>((resolve) => {
+    Alert.alert(title, message, buttons.map((b) => ({ text: b.text, style: b.style, onPress: () => resolve(b.value) })),
+      { cancelable: true, onDismiss: () => resolve(false) });
+  });
+
+/** Avertissement militaire : date d'acceptation, ou null si le joueur annule ou si c'est interdit dans ce pays. */
+async function militaryAck(c: Capture): Promise<string | null> {
+  if (c.militaryAckAt) return c.militaryAckAt;
+  const gate = militaryGate(await captureCountry(c));
+  if (gate.blocked) {
+    await ask('⛔ Appareil militaire', MILITARY_FORBIDDEN_TEXT, [{ text: 'Choisir un autre type', value: false }]);
+    return null;
+  }
+  if (!gate.ask) return gate.ackAt ?? acceptMilitary();
+  const note = gate.policy === 'restreint'
+    ? 'Pays avec restrictions (ou inconnu) : avertissement à accepter à chaque photo.'
+    : 'Accepté une fois pour cette session.';
+  const ok = await ask('⚠ Appareil militaire détecté',
+    `${MILITARY_WARNING.replace(/^Appareil militaire détecté\. /, '')}\n\n${note} Ton acceptation est enregistrée avec la date et l’heure. Ta position n’est jamais publique.`,
+    [{ text: 'Annuler', value: false, style: 'cancel' }, { text: 'Je comprends, continuer', value: true }]);
+  return ok ? acceptMilitary() : null;
+}
+
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 
 export default function IdentifySheet() {
@@ -24,6 +66,7 @@ export default function IdentifySheet() {
   const [query, setQuery] = useState('');
   const [reg, setReg] = useState('');
   const [auto, setAuto] = useState<Auto>({ state: 'idle' });
+  const [family, setFamily] = useState<string | null>(null); // famille choisie, en attente de la série
   const session = useRef(0);
   const regTouched = useRef(false);
   const owned = useMemo(() => (capture ? ownedTypes() : new Set<string>()), [capture, ownedTypes]);
@@ -40,6 +83,7 @@ export default function IdentifySheet() {
     if (!capture) return;
     const my = ++session.current;
     regTouched.current = false;
+    setFamily(null);
     setQuery('');
     setReg(capture.registration || '');
     if (capture.registration) {
@@ -50,14 +94,26 @@ export default function IdentifySheet() {
         .then((r) => {
           if (my !== session.current) return;
           if (!r.registration) {
-            setAuto({ state: 'none', message: 'Aucune immatriculation lisible sur la photo. Choisis le type ci-dessous ou tape l’immatriculation.' });
+            // Texte lu (diagnostic) : aide à comprendre une immatriculation manquée.
+            const seen = r.text.replace(/\s+/g, ' ').trim().slice(0, 120);
+            // Erreurs par étape (diagnostic) : seulement les 3 premières, différentes.
+            const errs = Array.from(new Set(r.errors)).slice(0, 3);
+            setAuto({
+              state: 'none',
+              message: 'Aucune immatriculation lisible sur la photo. Choisis le type ci-dessous ou tape l’immatriculation.'
+                + (seen ? `\n\nTexte lu : « ${seen} »` : '\n\nAucun texte lu.')
+                + (errs.length ? `\n\nErreurs (${r.errors.length}) :\n${errs.join('\n')}` : ''),
+            });
             return;
           }
           if (!regTouched.current) setReg(r.registration);
           showLookup(r.registration, 'ocr', my);
         })
-        .catch(() => {
-          if (my === session.current) setAuto({ state: 'none', message: 'Lecture automatique indisponible. Choisis le type ci-dessous.' });
+        .catch((e) => {
+          const why = (e instanceof Error ? e.message : String(e)).slice(0, 160);
+          if (my === session.current) setAuto({ state: 'none', message: `Lecture automatique indisponible. Choisis le type ci-dessous.
+
+Erreur : ${why}` });
         });
     } else {
       setAuto({ state: 'idle' });
@@ -76,28 +132,44 @@ export default function IdentifySheet() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reg]);
 
-  function finish(typeId: string) {
-    if (!identifyReq) return;
+  const checking = useRef(false);
+  async function finish(typeId: string, seriesId: string | null = null) {
+    if (!identifyReq || checking.current) return;
+    let militaryAckAt = identifyReq.capture.militaryAckAt ?? null;
+    if (getType(typeId).category === 'militaire') {
+      checking.current = true;
+      militaryAckAt = await militaryAck(identifyReq.capture).finally(() => { checking.current = false; });
+      if (!militaryAckAt) return; // la fiche reste ouverte : autre type ou « Je ne sais pas »
+    }
     session.current++;
     const typed = normalizeRegistration(reg) || null;
     const fromAuto = auto.state === 'found' && typed === auto.registration;
+    setFamily(null);
     identifyReq.resolve({
       typeId,
+      seriesId: typeId === 'inconnu' ? null : seriesId,
       registration: typed,
       registrationSource: typed ? (fromAuto && auto.state === 'found' ? auto.source : 'manuel') : null,
       registryModel: fromAuto && auto.state === 'found' && auto.lookup ? auto.lookup.label : null,
+      militaryAckAt,
     });
   }
 
   const suggested = auto.state === 'found' && auto.lookup?.typeId ? auto.lookup.typeId : null;
+  const suggestedSeries = auto.state === 'found' && auto.lookup?.seriesId ? auto.lookup.seriesId : null;
   const nq = norm(query);
-  const matches = AIRCRAFT.filter((a) => !nq || norm(`${a.name} ${a.maker} ${a.id}`).includes(nq));
+  // La recherche porte aussi sur les séries (« 900ER », « Skyhawk », « MAX 8 »…).
+  const seriesHit = (a: (typeof AIRCRAFT)[number]) => (nq ? a.series.filter((s) => norm(s.name).includes(nq)) : []);
+  const matches = AIRCRAFT.filter((a) => !nq || norm(`${a.name} ${a.maker} ${a.id}`).includes(nq) || seriesHit(a).length > 0);
+  // Famille avec séries : deuxième étape « Quelle série ? ».
+  const choose = (id: string) => (getType(id).series.length ? setFamily(id) : finish(id));
+  const fam = family ? getType(family) : null;
 
   return (
     <Sheet visible={!!capture} title="Quel avion as-tu capturé ?" onClose={() => finish('inconnu')}>
       {capture?.photoUri ? <Image source={{ uri: capture.photoUri }} style={st.photo} resizeMode="cover" /> : null}
 
-      <AutoBox auto={auto} onConfirm={(id) => finish(id)} />
+      <AutoBox auto={auto} onConfirm={(id, sid) => (sid || !getType(id).series.length ? finish(id, sid) : setFamily(id))} />
 
       <TextInput
         style={st.input}
@@ -118,8 +190,26 @@ export default function IdentifySheet() {
         autoCorrect={false}
       />
 
-      {matches.length === 0 && <Text style={st.empty}>Aucun type trouvé. Choisis « Je ne sais pas ».</Text>}
-      {Object.entries(CATEGORIES).map(([cat, label]) => {
+      {fam ? (
+        <View>
+          <Pressable onPress={() => setFamily(null)} style={{ paddingVertical: 10 }}><Text style={st.back}>← Toutes les familles</Text></Pressable>
+          <Text style={st.cat}>{fam.name} · quelle série ?</Text>
+          <Text style={st.rowMaker}>Une nouvelle série d’une famille déjà dans ta flotte rapporte +2.</Text>
+          {fam.series.map((s) => (
+            <Pressable key={s.id} onPress={() => finish(fam.id, s.id)} style={({ pressed }) => [st.row, suggestedSeries === s.id && st.rowSugg, pressed && { opacity: 0.7 }, { marginTop: 6 }]}>
+              <Text style={[st.rowName, { flex: 1 }]}>{s.name}{owned.has(s.id) ? <Text style={st.owned}>  ✓ déjà capturée</Text> : null}</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => finish(fam.id, null)} style={({ pressed }) => [st.row, pressed && { opacity: 0.7 }, { marginTop: 6 }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={st.rowName}>Je ne connais pas la série</Text>
+              <Text style={st.rowMaker}>Tu pourras la préciser plus tard (Changer le type)</Text>
+            </View>
+          </Pressable>
+        </View>
+      ) : null}
+      {!fam && matches.length === 0 && <Text style={st.empty}>Aucun type trouvé. Choisis « Je ne sais pas ».</Text>}
+      {!fam && Object.entries(CATEGORIES).map(([cat, label]) => {
         const items = matches.filter((a) => a.category === cat);
         if (!items.length) return null;
         return (
@@ -127,11 +217,12 @@ export default function IdentifySheet() {
             <Text style={st.cat}>{label}</Text>
             {items.map((a) => {
               const r = RARITIES[a.rarity];
+              const hits = seriesHit(a).slice(0, 3).map((s) => s.name).join(', ');
               return (
-                <Pressable key={a.id} onPress={() => finish(a.id)} style={({ pressed }) => [st.row, suggested === a.id && st.rowSugg, pressed && { opacity: 0.7 }]}>
+                <Pressable key={a.id} onPress={() => choose(a.id)} style={({ pressed }) => [st.row, suggested === a.id && st.rowSugg, pressed && { opacity: 0.7 }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={st.rowName}>{a.name}{owned.has(a.id) ? <Text style={st.owned}>  ✓ déjà dans ta flotte</Text> : null}</Text>
-                    <Text style={st.rowMaker}>{a.maker}</Text>
+                    <Text style={st.rowMaker}>{a.maker}{a.series.length ? ` · ${a.series.length} séries` : ''}{hits ? ` · ${hits}` : ''}</Text>
                   </View>
                   <View style={[st.rar, { backgroundColor: r.color }]}><Text style={st.rarText}>{r.label} · {r.points}</Text></View>
                 </Pressable>
@@ -146,7 +237,7 @@ export default function IdentifySheet() {
   );
 }
 
-function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) => void }) {
+function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string, seriesId: string | null) => void }) {
   if (auto.state === 'idle') return null;
   if (auto.state === 'reading') {
     return (
@@ -168,13 +259,13 @@ function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) 
         <View style={{ flex: 1 }}>
           <Text style={st.reg}>{auto.registration}</Text>
           <Text style={st.model}>{lk.label}</Text>
-          <Text style={st.src}>{srcLabel} · registre de Transport Canada du {lk.date}</Text>
-          <Btn kind="ok" label={`Confirmer : ${t.name} · ${r.label}`} onPress={() => onConfirm(lk.typeId!)} style={{ marginTop: 10 }} />
+          <Text style={st.src}>{srcLabel} · {REGISTRY_NAMES[lk.registry]} du {lk.date}</Text>
+          <Btn kind="ok" label={`Confirmer : ${seriesOf(t.id, lk.seriesId) ? `${seriesOf(t.id, lk.seriesId)!.name} (${t.name})` : t.name} · ${r.label}`}
+            onPress={() => onConfirm(lk.typeId!, seriesOf(t.id, lk.seriesId)?.id ?? null)} style={{ marginTop: 10 }} />
         </View>
       </View>
     );
   }
-  const foreign = !/^C-/.test(auto.registration);
   return (
     <View style={[st.auto, st.autoPartial]}>
       <View style={{ flex: 1 }}>
@@ -182,10 +273,8 @@ function AutoBox({ auto, onConfirm }: { auto: Auto; onConfirm: (typeId: string) 
         {lk ? <Text style={st.model}>{lk.label}</Text> : null}
         <Text style={st.src}>
           {srcLabel} · {lk
-            ? 'ce modèle n’est pas encore dans le catalogue SkyHunt : choisis le type le plus proche, ou « Je ne sais pas ».'
-            : foreign
-              ? 'immatriculation étrangère : le registre canadien ne la couvre pas encore. Choisis le type ci-dessous.'
-              : 'introuvable au registre canadien, vérifie les lettres. Choisis le type ci-dessous.'}
+            ? `${REGISTRY_NAMES[lk.registry]} · ce modèle n’est pas encore dans le catalogue SkyHunt : choisis le type le plus proche, ou « Je ne sais pas ».`
+            : `${notFoundMessage(auto.registration)} Choisis le type ci-dessous.`}
         </Text>
       </View>
     </View>
@@ -205,6 +294,7 @@ const st = StyleSheet.create({
   cat: { color: C.muted, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 6 },
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 10, padding: 12, marginBottom: 6 },
   rowSugg: { borderWidth: 2, borderColor: C.ok },
+  back: { color: C.accent, fontWeight: '700', fontSize: 15 },
   rowName: { color: C.text, fontSize: 15, fontWeight: '700' },
   rowMaker: { color: C.muted, fontSize: 12, marginTop: 2 },
   owned: { color: C.ok, fontSize: 11, fontWeight: '600' },

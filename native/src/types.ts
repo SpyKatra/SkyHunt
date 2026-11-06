@@ -17,6 +17,14 @@ export type Detection = {
   screenObject: number;
   /** Classe COCO de cet écran (-1 si aucun). */
   screenClass: number;
+  /** Diagnostic : confiance « avion » de l'image tournée de 0°, 90°, 180° et 270° (sens horaire), mesurée de temps en temps. */
+  rotConf?: number[];
+  /** Diagnostic : positions des deux pics du moiré (« Cb u,v u,v », cycles par carré de 128 px). */
+  moirePeaks?: string;
+  /** Distance de mise au point en mètres, si le téléphone la donne de façon fiable. */
+  focusDistance?: number | null;
+  /** Quarts de tour (sens horaire) qui remettent l'image du capteur à l'endroit. */
+  rot?: number;
   /** Proportions de l'image tournée à l'endroit (largeur / hauteur). */
   aspect: number;
   /** Durée totale de l'analyse (ms). */
@@ -24,6 +32,9 @@ export type Detection = {
   /** Natif : part de la détection (redimensionnement + modèle) et du moiré (ms ; -1 = non mesuré cette fois). */
   detectMs?: number;
   moireMs?: number;
+  /** Diagnostic : image reçue (« 1920×1440 right ») et cadence réelle de la caméra. */
+  frameInfo?: string;
+  cameraFps?: number;
 };
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -35,6 +46,7 @@ export type Thresholds = {
   minBrightness: number;
   maxBrightness: number;
   maxMoire: number;
+  minFocusDistance: number;
   maxScreenObject: number;
 };
 
@@ -68,12 +80,24 @@ export type Capture = {
   sharpness: number;
   brightness: number;
   moire?: number | null;
+  /** Diagnostic : pics du moiré en direct au déclenchement. */
+  moirePeaks?: string | null;
+  /** Diagnostic : moiré mesuré sur la photo en pleine résolution (pas encore utilisé pour valider). */
+  photoMoire?: number | null;
+  photoMoirePeaks?: string | null;
+  photoMoireInfo?: string | null;
+  /** Diagnostic : balises EXIF de la photo (distance du sujet, focale...). */
+  exif?: string | null;
+  /** Diagnostic : distance de mise au point au déclenchement (voir focusText). */
+  focus?: string | null;
   screenObject?: number | null;
   box: Box | null;
   thresholds: Thresholds | null;
   valid: boolean;
   reasons: string[];
   typeId: string | null;
+  /** Série précise de la famille (« b737-800.900er »), facultative. */
+  seriesId?: string | null;
   registration: string | null;
   registrationSource: string | null;
   registryModel: string | null;
@@ -86,16 +110,38 @@ export type Capture = {
   syncState?: 'pending' | 'synced';
   rev?: number;
   photoPath?: string | null;
+  /** Points de lieu calculés par le serveur (rareté du lieu) ; absent = 1. */
+  placePoints?: number;
+  /** Jeton de capture à usage unique (anti-triche) : prouve que la photo n'est pas antidatée. */
+  captureToken?: string | null;
+  /** Avertissement militaire accepté (date, heure) : obligatoire pour qu'une capture militaire compte. */
+  militaryAckAt?: string | null;
+  /** Photo en double d'une photo déjà envoyée (constaté par le serveur) : 0 point. */
+  duplicate?: boolean;
 };
 
 export type Breakdown = {
+  /** Capture valide qui ne compte pas (double, militaire sans avertissement) : seul ce champ est présent. */
+  blocked?: string;
   aircraft: number;
   place: number;
   Q: number;
   R: number;
   bonus: number;
+  /** Nouvelle série d'une famille déjà capturée (+2). */
+  seriesBonus?: number;
+  series?: string | null;
   regSeen: boolean;
   repeat: number;
+};
+
+/** Ligne d'un classement (fonction serveur `leaderboard`). */
+export type RankRow = { rank: number; pseudo: string; country: string; points: number; captures: number; isMe: boolean };
+/** Ami ou demande : pas de pseudo pour une demande envoyée ou refusée (seulement le code tapé). */
+export type FriendRow = {
+  userId: string; state: 'ami' | 'reçue' | 'envoyée' | 'refusée'; pseudo: string | null; country: string | null; code: string | null;
+  /** Demande refusée : relance possible à partir de cette heure (48 h après le refus). */
+  retryAt: string | null;
 };
 
 /** Capture avec ses points recalculés. */
@@ -103,7 +149,9 @@ export type Scored = Capture & { points: number; breakdown: Breakdown | null };
 
 export type Identification = {
   typeId: string;
+  seriesId?: string | null;
   registration: string | null;
   registrationSource: string | null;
   registryModel: string | null;
+  militaryAckAt?: string | null;
 };

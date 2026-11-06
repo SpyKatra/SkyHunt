@@ -142,6 +142,15 @@ function spectralPeak(L, n) {
   // Un pic doit être un maximum local, dépasser le fond de son anneau ET ses voisins dans l'axe
   // radial (sinon c'est une arête droite — aile, horizon — qui fait une crête, pas un pic).
   const rMin = 6;
+  // Fréquences fixes du capteur : sur Samsung S23 (flux vidéo « binning »), un motif de couleur de 4 px
+  // crée TOUJOURS des pics en (±n/4, n/4), sur un vrai avion comme sur un écran, à tout zoom (mesuré le
+  // 2026-11-05). Un écran donne des pics qui bougent avec la distance : on ignore les multiples de n/4.
+  const q = n >> 2;
+  const onGrid = (a) => {
+    'worklet';
+    const m = ((a % q) + q) % q;
+    return m <= 1 || m >= q - 1;
+  };
   const pu = [];
   const pv = [];
   const ps = [];
@@ -150,6 +159,7 @@ function spectralPeak(L, n) {
       if (v === 0 && u < 0) continue; // moitié du plan : le spectre est symétrique
       const r2 = u * u + v * v;
       if (r2 < rMin * rMin) continue;
+      if (onGrid(u) && onGrid(v)) continue;
       const rr = Math.sqrt(r2);
       const r = Math.round(rr);
       if (r > half - 2) continue;
@@ -178,6 +188,8 @@ function spectralPeak(L, n) {
   // par le centre). La grille de pixels d'un écran l'est dans DEUX directions : on garde la paire de
   // pics la plus forte dont les directions font au moins 30° entre elles.
   let best = 0;
+  let bi = -1;
+  let bj = -1;
   for (let i = 0; i < ps.length; i++) {
     if (ps[i] <= best) continue;
     const ri = Math.sqrt(pu[i] * pu[i] + pv[i] * pv[i]);
@@ -187,9 +199,13 @@ function spectralPeak(L, n) {
       const cos = Math.abs(pu[i] * pu[j] + pv[i] * pv[j]) / (ri * rj);
       if (cos > 0.866) continue;
       best = Math.min(ps[i], ps[j]);
+      bi = i;
+      bj = j;
     }
   }
-  return best;
+  // Positions des deux pics (diagnostic) : « u,v » en cycles par carré de n pixels.
+  const peaks = bi < 0 ? '' : `${pu[bi]},${pv[bi]} ${pu[bj]},${pv[bj]}`;
+  return { score: best, peaks };
 }
 
 /**
@@ -210,7 +226,11 @@ export function analyzePatch(rgb, n) {
     Cr[i] = rgb[k] - y;
   }
   const [Lb, Lr] = logSpectra(Cb, Cr, n);
-  return { moire: 10 * Math.max(spectralPeak(Lb, n), spectralPeak(Lr, n)) };
+  const b = spectralPeak(Lb, n);
+  const r = spectralPeak(Lr, n);
+  const top = b.score >= r.score ? b : r;
+  // peaks : diagnostic (où sont les pics : un défaut du capteur tombe toujours au même endroit).
+  return { moire: 10 * top.score, peaks: top.peaks ? `${b.score >= r.score ? 'Cb' : 'Cr'} ${top.peaks}` : '' };
 }
 
 /**

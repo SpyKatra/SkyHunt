@@ -1,6 +1,6 @@
 // Détail d'une carte : photo, informations, points, actions (web/ui-cards.js → openDetail).
 import { Alert, Image, Share, StyleSheet, Text, View } from 'react-native';
-import { getType, RARITIES } from './shared';
+import { getType, RARITIES, seriesOf } from './shared';
 import { useApp } from './store';
 import { C, fmtDate } from './theme';
 import { Breakdown, Btn, placeLong, RarityPill, Sheet } from './ui';
@@ -36,12 +36,15 @@ export default function DetailSheet() {
           <View style={st.kv}>
             {c.valid && <Row k="Rareté"><RarityPill typeId={c.typeId} /></Row>}
             {c.valid && <Row k="Constructeur" v={t.maker} />}
+            {c.valid && t.id !== 'inconnu' ? (
+              <Row k="Série" v={seriesOf(t.id, c.seriesId)?.name || (t.series.length ? 'pas encore précisée (Changer le type)' : t.name)} />
+            ) : null}
             {c.registration ? (
               <Row k="Immatriculation">
                 <Text style={st.v}>{c.registration}{c.registrationSource === 'ocr' ? <Text style={{ color: C.ok, fontSize: 12 }}>  lue sur la photo</Text> : null}</Text>
               </Row>
             ) : null}
-            {c.registryModel ? <Row k="Modèle exact" v={`${c.registryModel} (registre TC)`} /> : null}
+            {c.registryModel ? <Row k="Modèle exact" v={`${c.registryModel} (registre)`} /> : null}
             <Row k="Date" v={fmtDate(c.takenAt, true)} />
             <Row k="Lieu" v={placeLong(c)} />
             <Row k="Mesures" v={`Confiance ${Math.round(c.confidence * 100)} % · taille ${Math.round(c.sizeRatio * 100)} % · netteté ${Math.round(c.sharpness)}${c.zoom ? ` · zoom ×${c.zoom.toFixed(1)}` : ''}`} />

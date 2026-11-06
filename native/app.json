@@ -2,7 +2,7 @@
   "expo": {
     "name": "SkyHunt",
     "slug": "skyhunt",
-    "version": "0.5.0",
+    "version": "0.7.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -40,15 +40,6 @@
     "plugins": [
       "expo-dev-client",
       [
-        "react-native-vision-camera",
-        {
-          "cameraPermissionText": "SkyHunt utilise la caméra pour photographier les avions de ta collection.",
-          "enableFrameProcessors": true,
-          "enableMicrophonePermission": false,
-          "enableLocation": false
-        }
-      ],
-      [
         "expo-location",
         {
           "locationWhenInUsePermission": "SkyHunt enregistre le lieu de chaque capture pour calculer les points et empêcher la triche."
@@ -60,13 +51,31 @@
           "enableCoreMLDelegate": true
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 26,
+            "enableMinifyInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false
+          }
+        }
+      ]
     ],
     "extra": {
       "eas": {
         "projectId": "371e3b65-9fbc-47ef-8829-94f871444f7d"
       }
     },
-    "owner": "spykatra"
+    "owner": "spykatra",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/371e3b65-9fbc-47ef-8829-94f871444f7d",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

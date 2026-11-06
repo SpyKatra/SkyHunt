@@ -1,49 +1,127 @@
-// Écran « Chasser » : caméra, détection en direct, zoom optique, capture → identification → révélation.
+// Écran « Chasser » : caméra, zoom optique, photo → analyse de la photo → identification → révélation.
+// Plus d'analyse en direct (décision de Spy, 2026-11-05) : voir photoAnalysis.ts.
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, PanResponder, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Camera, useCameraDevice, useCameraFormat, useCameraPermission } from 'react-native-vision-camera';
-import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SCREEN_CLASSES } from './shared';
+import { ActivityIndicator, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Camera, CommonResolutions, useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
+import { takeCaptureToken } from './cloud';
+import { analyzePhoto, loadDetector, type PhotoAnalysis } from './photoAnalysis';
+import { checkDetection, computeStats, DEFAULT_THRESHOLDS, levelFor, SAFETY_TEXT, SAFETY_VERSION, SCREEN_CLASSES } from './shared';
 import { keepPhoto } from './storage';
 import { useApp } from './store';
 import { C } from './theme';
 import type { Capture } from './types';
 import { Bar } from './ui';
-import { useAircraftDetector } from './useAircraftDetector';
 
-const APP_VERSION = '0.5';
+const APP_VERSION = '0.7';
+const SAFETY_KEY = 'skyhunt.safety';
+
+/** Consigne de sécurité, à accepter avant la première utilisation de la caméra (et à chaque nouvelle version). */
+function useSafety() {
+  const [ok, setOk] = useState<boolean | null>(null);
+  useEffect(() => {
+    AsyncStorage.getItem(SAFETY_KEY)
+      .then((v) => setOk(!!v && (JSON.parse(v).version ?? 0) >= SAFETY_VERSION))
+      .catch(() => setOk(false));
+  }, []);
+  const accept = () => {
+    setOk(true);
+    AsyncStorage.setItem(SAFETY_KEY, JSON.stringify({ version: SAFETY_VERSION, at: new Date().toISOString() })).catch(() => {});
+  };
+  return [ok, accept] as const;
+}
+
 const USER_AGENT = `SkyHunt/${APP_VERSION} (${Platform.OS} ${Platform.Version}; ${String((Platform.constants as Record<string, unknown>).Model ?? '')})`;
+
+/**
+ * Distance de mise au point : texte du diagnostic et mètres pour la validation.
+ * Android (vision-camera patché) : dioptries (1 / mètres) + 1000 × calibration, -1 si inconnue.
+ * Sans calibration, Android ne donne pas de vraies dioptries : pas de mètres, donc pas de refus.
+ * iPhone : position de l'objectif d'Apple, de 0 (le plus près) à 1 (le plus loin), pas une distance.
+ */
+function focusInfo(v: number | undefined): { text: string; meters: number | null } {
+  if (v == null) return { text: 'Mise au point : caméra pas prête', meters: null };
+  if (Platform.OS === 'ios') return { text: `Mise au point : objectif ${v.toFixed(3)} (0 = près, 1 = loin)`, meters: null };
+  if (v < 0) return { text: 'Mise au point : inconnue', meters: null };
+  const cal = Math.floor(v / 1000);
+  const d = v - cal * 1000;
+  const calName = ['non calibrée', 'approximative', 'calibrée'][cal] ?? `?${cal}`;
+  const m = d > 0.001 ? `≈ ${(1 / d).toFixed(2)} m` : 'infini';
+  const meters = cal === 0 ? null : d > 0.001 ? 1 / d : Infinity;
+  return { text: `Mise au point : ${d.toFixed(3)} D ${m} (${calName})`, meters };
+}
 
 export default function CameraScreen({ active }: { active: boolean }) {
   const { list, saveNew, identify, reveal, toast } = useApp();
   const { hasPermission, requestPermission } = useCameraPermission();
-  // Appareil « virtuel » qui passe tout seul de l'ultra grand-angle au téléobjectif selon le zoom.
-  const device = useCameraDevice('back', {
-    physicalDevices: ['ultra-wide-angle-camera', 'wide-angle-camera', 'telephoto-camera'],
+  const [safetyOk, acceptSafety] = useSafety();
+  // iPhone : appareil « virtuel » qui passe tout seul de l'ultra grand-angle au téléobjectif selon le zoom.
+  // Android : la caméra arrière par défaut (logique) fait déjà ce passage ; le filtre y est risqué car
+  // les caméras physiques ne sont pas décrites et le tri peut retenir une caméra secondaire.
+  const device = useCameraDevice('back', Platform.OS === 'ios'
+    ? { physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'] }
+    : undefined);
+  // Photo 4:3 de 12 Mpx (comme l'image analysée : le cadre détecté correspond à la photo). La pleine
+  // résolution (50-200 Mpx sur Android) alourdit la session caméra et ralentit l'aperçu, sans rien
+  // apporter à la lecture de l'immatriculation (l'envoi est de toute façon réduit à 1920 px).
+  const photoOutput = usePhotoOutput({
+    targetResolution: CommonResolutions.UHD_4_3,
+    containerFormat: 'jpeg',
+    quality: 0.95,
+    qualityPrioritization: 'quality',
   });
-  // Même proportion (4:3) pour l'analyse et la photo : le cadre détecté correspond à la photo.
-  const format = useCameraFormat(device, [
-    { videoAspectRatio: 4 / 3 },
-    { photoAspectRatio: 4 / 3 },
-    { videoResolution: { width: 1920, height: 1440 } },
-    { photoResolution: 'max' },
-  ]);
-  const camera = useRef<Camera>(null);
 
-  const [rotationOffset, setRotationOffset] = useState(0);
   const [showDebug, setShowDebug] = useState(false);
+  // Erreurs de la caméra : le message natif contient toute la pile Java, illisible dans un toast.
+  // On n'affiche que la 1re ligne et on garde les 3 dernières pour le diagnostic.
+  const [camErrors, setCamErrors] = useState<string[]>([]);
+  const [sessionInfo, setSessionInfo] = useState("");
+  const onCamError = useCallback((e: Error) => {
+    const head = String(e?.message ?? e).split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('at ')).slice(0, 2).join(' — ').slice(0, 300);
+    // Sans conséquence, ignorés : « Camera is not active » (réglage envoyé avant le démarrage) et
+    // « Cancelled due to another zoom value » (chaque pas du pincement annule le précédent, ~60/s).
+    if (/not active|another zoom/i.test(head)) return;
+    console.log(`[SkyHunt] erreur caméra : ${head}`);
+    const t = new Date().toLocaleTimeString('fr-CA');
+    setCamErrors((list) => [`${t} ${head}`, ...list].slice(0, 3));
+    toast(`Caméra : ${head.slice(0, 120)}`);
+  }, [toast]);
+  // État de la session, et relance automatique si la caméra ne démarre pas (écran noir).
+  const [camState, setCamState] = useState('démarrage…');
+  const [camKey, setCamKey] = useState(0);
+  const started = useRef(false);
+  const camRef = useRef<CameraRef>(null);
+  const [lastFocus, setLastFocus] = useState('');
+  const onStarted = useCallback(() => { console.log('[SkyHunt] session démarrée'); started.current = true; setCamState('en marche'); }, []);
+  const onStopped = useCallback(() => { console.log('[SkyHunt] session arrêtée'); started.current = false; setCamState('arrêtée'); }, []);
+  const onInterrupted = useCallback((r: unknown) => setCamState(`interrompue (${String(r)})`), []);
+  const onResumed = useCallback(() => setCamState('en marche'), []);
   const [busy, setBusy] = useState(false);
   const thresholds = DEFAULT_THRESHOLDS;
 
-  const { frameProcessor, detection, modelState, modelError } = useAircraftDetector(rotationOffset);
-  const check = checkDetection(detection, thresholds);
+  const outputs = useMemo(() => [photoOutput], [photoOutput]);
+  // Dernière photo analysée (diagnostic) et état du modèle (chargé dès l'ouverture de l'écran).
+  const [last, setLast] = useState<PhotoAnalysis | null>(null);
+  const [lastMsg, setLastMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const [modelReady, setModelReady] = useState(false);
+  useEffect(() => {
+    loadDetector().then(() => setModelReady(true)).catch((e) => setModelError(e instanceof Error ? e.message : String(e)));
+  }, []);
 
   const stats = useMemo(() => computeStats(list), [list]);
   const lv = levelFor(stats.xp);
 
   /* ---------------- Zoom ---------------- */
-  const neutral = device?.neutralZoom ?? 1;
+  // Zoom « 1× » = objectif principal. Android : valeurs déjà relatives (ultra grand-angle < 1).
+  // iPhone (appareil virtuel) : 1 = ultra grand-angle, le principal est au 1er seuil de bascule.
+  const neutral = device == null ? 1
+    : device.minZoom < 1 ? 1
+    : device.zoomLensSwitchFactors.length > 0 && device.physicalDevices.some((d) => d.type === 'ultra-wide-angle')
+      ? device.zoomLensSwitchFactors[0]
+      : device.minZoom;
   const minZoom = device?.minZoom ?? 1;
   const maxZoom = Math.min(device?.maxZoom ?? 1, neutral * 20);
   const [zoom, setZoom] = useState(neutral);
@@ -96,22 +174,50 @@ export default function CameraScreen({ active }: { active: boolean }) {
     if (!hasPermission) requestPermission();
   }, [hasPermission, requestPermission]);
 
+  // Chien de garde : si la caméra n'a pas démarré 5 s après l'ouverture, on recrée la session
+  // (3 essais au plus). Évite l'écran noir qui obligeait à fermer l'app.
+  const retries = useRef(0);
+  useEffect(() => {
+    console.log(`[SkyHunt] caméra : active=${active} perm=${hasPermission} device=${device?.id ?? 'null'} key=${camKey}`);
+  }, [active, hasPermission, device, camKey]);
+  useEffect(() => {
+    console.log('[SkyHunt] CameraScreen monté');
+    return () => console.log('[SkyHunt] CameraScreen démonté');
+  }, []);
+  useEffect(() => {
+    if (!active) { retries.current = 0; started.current = false; setCamState('démarrage…'); return; }
+    if (!hasPermission || device == null) return;
+    started.current = false;
+    const timer = setTimeout(() => {
+      if (started.current || retries.current >= 3) return;
+      retries.current += 1;
+      setCamState(`relance ${retries.current}/3`);
+      setCamKey((k) => k + 1);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [active, hasPermission, device, camKey]);
+
   /* ---------------- Capture ---------------- */
   const takeCapture = useCallback(async () => {
-    if (camera.current == null || busy) return;
+    if (busy) return;
     setBusy(true);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    // On fige le verdict au moment du déclenchement.
-    const snapshot = detection;
-    const verdict = checkDetection(snapshot, thresholds);
+    setLastMsg(null);
     try {
-      const photo = await camera.current.takePhoto({ enableShutterSound: false });
+      // Distance de mise au point juste avant la photo (diagnostic anti-écran, version 0.6).
+      const focus = focusInfo(camRef.current?.controller?.lensPosition);
+      setLastFocus(focus.text);
+      const photo = await photoOutput.capturePhotoToFile({ flashMode: 'off', enableShutterSound: false }, {});
       let pos = position.current;
       if (!pos) {
         pos = await Location.getLastKnownPositionAsync({ maxAge: 60000 }).catch(() => null);
       }
       const id = `${Date.now()}`;
-      const photoUri = await keepPhoto(id, photo.path);
+      const photoUri = await keepPhoto(id, photo.filePath);
+      // Analyse de la photo prise : avion, taille, netteté, luminosité, écran, moiré à pleine résolution.
+      const snapshot = await analyzePhoto(photoUri);
+      setLast(snapshot);
+      const verdict = checkDetection({ ...snapshot, focusDistance: focus.meters }, thresholds);
       const mocked = pos?.mocked === true;
       const reasons = [...verdict.reasons];
       if (!pos) reasons.push('Position GPS inconnue');
@@ -133,6 +239,12 @@ export default function CameraScreen({ active }: { active: boolean }) {
         sharpness: snapshot?.sharpness ?? 0,
         brightness: snapshot?.brightness ?? 0,
         moire: snapshot?.moire ?? null,
+        moirePeaks: snapshot.moirePeaks ?? null,
+        photoMoire: snapshot.moire,
+        photoMoirePeaks: snapshot.moireAll.join(' / '),
+        photoMoireInfo: snapshot.photoInfo,
+        exif: snapshot.exif,
+        focus: focus.text,
         screenObject: snapshot?.screenObject ?? null,
         box: snapshot?.box ?? null,
         thresholds: { ...thresholds },
@@ -144,12 +256,15 @@ export default function CameraScreen({ active }: { active: boolean }) {
         registryModel: null,
         userAgent: USER_AGENT,
         zoom: Math.round(factor * 10) / 10,
+        // Jeton à usage unique (anti-triche) : prouve au serveur que la photo n'est pas antidatée.
+        captureToken: valid ? takeCaptureToken() : null,
       };
 
       if (!valid) {
         await saveNew(record);
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-        toast(`Refusée : ${reasons[0] || 'photo non valide'}`);
+        // La caméra reste ouverte : le joueur corrige (zoom, cadrage) et reprend la photo.
+        setLastMsg({ text: `${reasons[0] || 'Photo non valide'} — reprends la photo`, ok: false });
         return;
       }
 
@@ -163,9 +278,22 @@ export default function CameraScreen({ active }: { active: boolean }) {
     } finally {
       setBusy(false);
     }
-  }, [busy, detection, thresholds, factor, saveNew, identify, reveal, toast]);
+  }, [busy, thresholds, factor, photoOutput, saveNew, identify, reveal, toast]);
 
   /* ---------------- Rendu ---------------- */
+  if (safetyOk === null) return <View style={st.center} />;
+  if (!safetyOk) {
+    return (
+      <ScrollView style={{ flex: 1, backgroundColor: C.bg }} contentContainerStyle={st.safety}>
+        <Text style={st.safetyTitle}>Avant de chasser</Text>
+        {SAFETY_TEXT.map((t) => <Text key={t} style={st.safetyItem}>•  {t}</Text>)}
+        <Text style={st.safetyNote}>Tu es responsable de respecter les lois et règlements du lieu où tu te trouves.</Text>
+        <Pressable style={[st.btn, { alignSelf: 'stretch', alignItems: 'center', paddingVertical: 14 }]} onPress={acceptSafety}>
+          <Text style={st.btnText}>J’ai compris</Text>
+        </Pressable>
+      </ScrollView>
+    );
+  }
   if (!hasPermission) {
     return (
       <View style={st.center}>
@@ -184,59 +312,67 @@ export default function CameraScreen({ active }: { active: boolean }) {
     );
   }
 
-  const aspect = detection?.aspect ?? 3 / 4;
-  const box = detection?.found && detection.confidence >= thresholds.minConfidence ? detection.box : null;
-  const boxColor = check.ok ? C.ok : C.warn;
-  const status = modelState === 'loading' ? 'Chargement du modèle…' : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}` : check.message;
+  const status = camState !== 'en marche' ? `Caméra : ${camState}`
+    : modelError ? `Modèle : ${modelError.split('\n')[0].slice(0, 140)}`
+    : busy ? 'Analyse de la photo…'
+    : lastMsg ? lastMsg.text
+    : !modelReady ? 'Chargement du modèle…'
+    : 'Vise un avion et prends la photo';
+  const statusColor = lastMsg && !busy ? (lastMsg.ok ? C.ok : C.warn) : C.text;
+  const d = last;
 
   return (
     <View style={st.container} {...responder.panHandlers}>
-      {/* Zone aux proportions exactes de l'image analysée : le cadre suit l'avion. */}
-      <View style={[st.preview, { aspectRatio: aspect }]}>
-        <Camera
-          ref={camera}
-          style={StyleSheet.absoluteFill}
-          device={device}
-          format={format}
-          isActive={active}
-          photo
-          zoom={zoom}
-          frameProcessor={frameProcessor}
-          pixelFormat="yuv"
-          resizeMode="cover"
-          photoQualityBalance="quality"
-        />
-        {box && (
-          <View pointerEvents="none" style={[st.box, { left: `${box.x * 100}%`, top: `${box.y * 100}%`, width: `${box.w * 100}%`, height: `${box.h * 100}%`, borderColor: boxColor }]}>
-            <Text style={[st.boxLabel, { backgroundColor: boxColor }]}>Avion {Math.round((detection?.confidence ?? 0) * 100)} %</Text>
-          </View>
+      {/* Aperçu 4:3, comme la photo. */}
+      <View style={[st.preview, { aspectRatio: 3 / 4 }]}>
+        {/* Montée seulement sur cet onglet : la caméra est entièrement libérée ailleurs. */}
+        {active && (
+          <Camera
+            key={camKey}
+            ref={camRef}
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive
+            outputs={outputs}
+            zoom={camState === 'en marche' ? zoom : undefined}
+            resizeMode="cover"
+            onSessionConfigSelected={(c) => setSessionInfo(`${c.selectedFPS ?? '?'} i/s · ${c.nativePixelFormat}${c.isBinned ? ' · binning' : ''}`)}
+            onStarted={onStarted}
+            onStopped={onStopped}
+            onInterruptionStarted={onInterrupted}
+            onInterruptionEnded={onResumed}
+            onError={onCamError}
+          />
         )}
       </View>
 
       <View style={st.topBar} pointerEvents="box-none">
-        <View style={st.status}><Text style={[st.statusText, { color: check.ok ? C.ok : C.text }]}>{status}</Text></View>
+        <View style={st.status}><Text style={[st.statusText, { color: statusColor }]}>{status}</Text></View>
         <View style={st.level}>
           <Text style={st.levelText}>Niv. {lv.level}</Text>
           <View style={{ width: 44 }}><Bar value={lv.progress} height={4} /></View>
         </View>
       </View>
 
-      {showDebug && detection && (
+      {showDebug && (
         <View style={st.debug}>
-          <Text style={st.debugText}>Confiance : {Math.round(detection.confidence * 100)} % (min {Math.round(thresholds.minConfidence * 100)})</Text>
-          <Text style={st.debugText}>Taille : {Math.round(detection.sizeRatio * 100)} % (min {Math.round(thresholds.minSizeRatio * 100)})</Text>
-          <Text style={st.debugText}>Netteté : {Math.round(detection.sharpness)} (min {thresholds.minSharpness})</Text>
-          <Text style={st.debugText}>Luminosité : {Math.round(detection.brightness)}</Text>
-          <Text style={st.debugText}>Moiré (écran) : {Math.round(detection.moire)} dB (max {thresholds.maxMoire})</Text>
-          <Text style={st.debugText}>Écran détecté : {detection.screenObject ? `${SCREEN_CLASSES[detection.screenClass] ?? 'écran'} ${Math.round(detection.screenObject * 100)} %` : 'non'}</Text>
-          <Text style={st.debugText}>
-            Analyse : {Math.round(detection.inferenceMs)} ms (détection {detection.detectMs ?? '?'}
-            {detection.moireMs != null && detection.moireMs >= 0 ? ` · moiré ${detection.moireMs}` : ''}) · max {format?.maxFps ?? '?'} i/s · zoom ×{factor.toFixed(1)}
-          </Text>
+          {d ? (
+            <>
+              <Text style={st.debugText}>Dernière photo : {d.frameInfo} · analyse {d.inferenceMs} ms (détection {d.detectMs}{d.moireMs != null && d.moireMs >= 0 ? ` · moiré ${d.moireMs}` : ''})</Text>
+              <Text style={st.debugText}>Confiance : {Math.round(d.confidence * 100)} % (min {Math.round(thresholds.minConfidence * 100)})</Text>
+              <Text style={st.debugText}>Taille : {Math.round(d.sizeRatio * 100)} % (min {Math.round(thresholds.minSizeRatio * 100)})</Text>
+              <Text style={st.debugText}>Netteté : {Math.round(d.sharpness)} (min {thresholds.minSharpness})</Text>
+              <Text style={st.debugText}>Luminosité : {Math.round(d.brightness)}</Text>
+              <Text style={st.debugText}>Moiré (écran) : {Math.round(d.moire)} dB (max {thresholds.maxMoire}) · carrés {d.moireAll.join(' / ') || '–'}{d.moirePeaks ? ` · pics ${d.moirePeaks}` : ''}</Text>
+              <Text style={st.debugText}>Écran détecté : {d.screenObject ? `${SCREEN_CLASSES[d.screenClass] ?? 'écran'} ${Math.round(d.screenObject * 100)} %` : 'non'}</Text>
+              {d.photoInfo ? <Text style={st.debugText}>{d.photoInfo}</Text> : null}
+              <Text style={st.debugText}>{d.exif}</Text>
+              <Text style={st.debugText}>{lastFocus}</Text>
+            </>
+          ) : <Text style={st.debugText}>Prends une photo : ses mesures s’afficheront ici.</Text>}
+          <Text style={st.debugText}>Caméra : {camState} · {sessionInfo || 'configuration…'} · zoom ×{factor.toFixed(1)} · {USER_AGENT}</Text>
+          {camErrors.map((m, i) => <Text key={i} style={[st.debugText, { color: C.warn }]}>Erreur {m}</Text>)}
           <Text style={st.debugText}>GPS : {position.current ? `±${Math.round(position.current.coords.accuracy ?? 0)} m` : 'en attente'}</Text>
-          <Pressable onPress={() => setRotationOffset((r) => (r + 1) % 4)} style={st.smallBtn}>
-            <Text style={st.smallBtnText}>↻ Orientation ({rotationOffset * 90}°)</Text>
-          </Pressable>
         </View>
       )}
 
@@ -258,8 +394,8 @@ export default function CameraScreen({ active }: { active: boolean }) {
         <Pressable onPress={() => setShowDebug((v) => !v)} style={st.smallBtn}>
           <Text style={st.smallBtnText}>{showDebug ? 'Masquer diag.' : 'Diagnostic'}</Text>
         </Pressable>
-        <Pressable onPress={takeCapture} disabled={busy} style={[st.shutter, { borderColor: check.ok ? C.ok : C.muted }]}>
-          {busy ? <ActivityIndicator color="#fff" /> : <View style={[st.shutterInner, { backgroundColor: check.ok ? C.ok : '#E2E8F0' }]} />}
+        <Pressable onPress={takeCapture} disabled={busy || !modelReady} style={[st.shutter, { borderColor: modelReady ? '#E2E8F0' : C.muted }]}>
+          {busy ? <ActivityIndicator color="#fff" /> : <View style={[st.shutterInner, { backgroundColor: modelReady ? '#E2E8F0' : C.muted }]} />}
         </Pressable>
         <View style={{ width: 96 }} />
       </View>
@@ -274,6 +410,10 @@ const st = StyleSheet.create({
   text: { color: C.text, fontSize: 16, textAlign: 'center', marginBottom: 16 },
   btn: { backgroundColor: C.accent, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10 },
   btnText: { color: '#fff', fontWeight: '700' },
+  safety: { padding: 24, paddingTop: 60, flexGrow: 1, justifyContent: 'center' },
+  safetyTitle: { color: '#fbbf24', fontSize: 22, fontWeight: '800', marginBottom: 16 },
+  safetyItem: { color: C.text, fontSize: 16, lineHeight: 23, marginBottom: 10 },
+  safetyNote: { color: C.muted, fontSize: 13, marginTop: 6, marginBottom: 22 },
   box: { position: 'absolute', borderWidth: 3, borderRadius: 6 },
   boxLabel: { position: 'absolute', top: -22, left: -3, color: '#000', fontSize: 12, fontWeight: '700', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, overflow: 'hidden' },
   topBar: { position: 'absolute', top: 12, left: 12, right: 12, flexDirection: 'row', gap: 8 },

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { deleteAccount, saveRemoteProfile, sendCode, signOut, sync, type CloudState } from './cloud';
+import FriendsSection from './FriendsSection';
 import { achievementState, computeStats, levelFor, RARITIES, type RarityKey } from './shared';
 import { useApp } from './store';
 import { C } from './theme';
@@ -10,7 +11,7 @@ import { Bar, Btn, Sheet } from './ui';
 import { verifyCode } from './cloud';
 
 // Pays du classement national (codes ISO 3166-1), noms en français.
-const COUNTRY_NAMES: Record<string, string> = {
+export const COUNTRY_NAMES: Record<string, string> = {
   CA: 'Canada', US: 'États-Unis', FR: 'France', BE: 'Belgique', CH: 'Suisse', LU: 'Luxembourg', MC: 'Monaco',
   GB: 'Royaume-Uni', IE: 'Irlande', DE: 'Allemagne', ES: 'Espagne', IT: 'Italie', PT: 'Portugal', NL: 'Pays-Bas',
   AT: 'Autriche', DK: 'Danemark', SE: 'Suède', NO: 'Norvège', FI: 'Finlande', PL: 'Pologne', CZ: 'Tchéquie',
@@ -43,12 +44,13 @@ export default function ProfileScreen() {
   const maxRarity = Math.max(1, ...Object.values(s.byRarity));
 
   const copyData = async () => {
-    const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,moire_db,ecran,precision_gps_m,zoom,raisons';
+    const head = 'date,valide,type,immatriculation,source_immat,modele_registre,points,confiance,taille,nettete,luminosite,moire_db,ecran,precision_gps_m,zoom,raisons,pics_direct,moire_photo_db,pics_photo,photo_info,exif,mise_au_point';
     const rows = list.map((c) => [
       c.takenAt, c.valid ? 'oui' : 'non', c.typeId || '', c.registration || '', c.registrationSource || '', `"${c.registryModel || ''}"`, c.points,
       c.confidence.toFixed(2), c.sizeRatio.toFixed(2), Math.round(c.sharpness), Math.round(c.brightness),
       c.moire != null ? c.moire.toFixed(1) : '', c.screenObject != null ? c.screenObject.toFixed(2) : '',
       c.accuracy != null ? Math.round(c.accuracy) : '', c.zoom != null ? c.zoom.toFixed(1) : '', `"${c.reasons.join(' | ')}"`,
+      `"${c.moirePeaks || ''}"`, c.photoMoire != null ? c.photoMoire.toFixed(1) : '', `"${c.photoMoirePeaks || ''}"`, `"${c.photoMoireInfo || ''}"`, `"${c.exif || ''}"`, `"${c.focus || ''}"`,
     ].join(','));
     await Share.share({ message: [head, ...rows].join('\n') }).catch(() => {});
   };
@@ -61,19 +63,10 @@ export default function ProfileScreen() {
     );
   };
 
-  const changeName = async (v: string) => {
-    const n = v.trim() || 'Joueur';
-    if (online) {
-      try { await saveRemoteProfile({ pseudo: n, country }); } catch (e) { toast((e as Error).message); return; }
-    }
-    saveLocal({ ...local, name: n });
-  };
-  const changeCountry = async (code: string) => {
-    if (online) {
-      try { await saveRemoteProfile({ pseudo: name, country: code }); } catch (e) { toast((e as Error).message); return; }
-    }
-    saveLocal({ ...local, country: code });
-  };
+  // Sans compte seulement : pseudo et pays locaux (proposés à la création du compte).
+  // Avec un compte, ils sont fixés : seul un administrateur peut les changer (support).
+  const changeName = (v: string) => saveLocal({ ...local, name: v.trim() || 'Joueur' });
+  const changeCountry = (code: string) => saveLocal({ ...local, country: code });
 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
@@ -125,12 +118,21 @@ export default function ProfileScreen() {
 
       <Account cloud={cloud} local={local} onChanged={reload} />
 
+      {online && <FriendsSection />}
+
       <Section title="Réglages">
-        {!(cloud.user && !cloud.profile) && (
+        {online && (
+          <>
+            <View style={st.kv}><Text style={st.kvK}>Pseudo</Text><Text style={st.kvV}>{name}</Text></View>
+            <View style={st.kv}><Text style={st.kvK}>Pays (classement national)</Text><Text style={st.kvV}>{COUNTRY_NAMES[country] || country}</Text></View>
+            <Text style={st.muted}>Le pseudo et le pays sont fixés à la création du compte. Pour les modifier, contacte le support.</Text>
+          </>
+        )}
+        {!cloud.user && (
           <>
             <Text style={st.label}>Pseudo</Text>
             <TextInput key={name} style={st.input} defaultValue={name} maxLength={20} onEndEditing={(e) => changeName(e.nativeEvent.text)} />
-            <Text style={st.label}>Pays du compte (classement national)</Text>
+            <Text style={st.label}>Pays</Text>
             <CountryPicker value={country} onChange={changeCountry} />
           </>
         )}
@@ -226,7 +228,10 @@ function Account({ cloud, local, onChanged }: { cloud: CloudState; local: LocalP
   if (!cloud.profile) {
     return (
       <Section title="Créer ton profil">
-        <Text style={st.muted}>Ton pseudo est visible dans les classements. Le pays sert au classement national.</Text>
+        <Text style={st.muted}>
+          Ton pseudo est visible dans les classements. Le pays sert au classement national.{' '}
+          <Text style={{ fontWeight: '800', color: C.text2 }}>Choisis bien : ils ne pourront plus être modifiés ensuite</Text> (sauf sur demande au support).
+        </Text>
         <Text style={st.label}>Pseudo</Text>
         <TextInput style={st.input} value={pseudo} onChangeText={setPseudo} maxLength={20} autoCorrect={false} />
         <Text style={st.label}>Pays</Text>
@@ -234,7 +239,10 @@ function Account({ cloud, local, onChanged }: { cloud: CloudState; local: LocalP
         <View style={st.row2}>
           <Btn kind="primary" label="Créer mon profil" busy={busy} style={{ flex: 1 }} onPress={() => {
             if (pseudo.trim().length < 2) { toast('Pseudo : au moins 2 caractères.'); return; }
-            run(async () => { await saveRemoteProfile({ pseudo: pseudo.trim(), country }); toast('Profil créé.'); });
+            Alert.alert('Créer ton profil ?', `« ${pseudo.trim()} » (${COUNTRY_NAMES[country] || country}). Le pseudo et le pays ne pourront plus être modifiés.`, [
+              { text: 'Annuler', style: 'cancel' },
+              { text: 'Créer', onPress: () => run(async () => { await saveRemoteProfile({ pseudo: pseudo.trim(), country }); toast('Profil créé.'); }) },
+            ]);
           }} />
           <Btn label="Se déconnecter" disabled={busy} style={{ flex: 1 }} onPress={logout} />
         </View>

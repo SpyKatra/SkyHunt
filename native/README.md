@@ -1,4 +1,4 @@
-# SkyHunt — app native 0.5 (iOS et Android)
+# SkyHunt — app native 0.7 (iOS et Android)
 
 La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte que la version web.
 
@@ -8,9 +8,9 @@ La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte
 | --- | --- | --- |
 | Caméra intégrée | Seule source de photos (pas de galerie, permission bloquée sur Android) | `src/CameraScreen.tsx` |
 | **Zoom optique** | Boutons 0,5× / 1× / 2× / 3× / 5× / 10× selon le téléphone, et pincement ; passe tout seul sur le téléobjectif | `src/CameraScreen.tsx` |
-| Détection en direct | EfficientDet-Lite0, ~5 analyses/s, cadre vert/orange | `src/useAircraftDetector.ts` |
-| Vraie photo | Pleine résolution, même proportion 4:3 que l'analyse | `src/CameraScreen.tsx` |
-| Anti-triche « photo d'écran » | Écran détecté autour de l'avion ou moiré coloré (`web/screen.js`, calculé dans le frame processor) | `src/useAircraftDetector.ts` |
+| Analyse de la photo prise | EfficientDet-Lite0 sur la photo, verdict en moins d'une seconde, caméra toujours ouverte | `src/photoAnalysis.ts` |
+| Vraie photo | Pleine résolution, 4:3 | `src/CameraScreen.tsx` |
+| Anti-triche « photo d'écran » | Écran détecté autour de l'avion, moiré coloré sur la photo (`web/screen.js`), distance de mise au point (Android, règle à activer) | `src/photoAnalysis.ts`, `src/CameraScreen.tsx` |
 | Lecture de l'immatriculation | Apple Vision (iPhone) / Google ML Kit (Android), puis registre de Transport Canada | `src/ocr.ts`, `src/IdentifySheet.tsx` |
 | Cartes, album, refusées, détail | Comme sur le web | `src/CardsScreen.tsx`, `src/DetailSheet.tsx` |
 | Révélation animée + vibrations | Points, niveau, succès | `src/RevealModal.tsx` |
@@ -22,19 +22,19 @@ La vraie app, avec Expo / React Native. Même jeu, même serveur et même compte
 configuration Supabase sont importés directement de `../web` (voir `src/shared.ts` et `metro.config.js`).
 Modifier une règle dans `web/` la change dans les deux versions.
 
-## Versions figées
+## Versions épinglées (branche `sdk-58`)
 
-Expo SDK 56, React Native 0.85.3, vision-camera 4.7.3, worklets-core 1.6.3, resize-plugin 3.2.0,
-fast-tflite 3.0.1, nitro-modules 0.37.1 : **ne pas les mettre à jour** (voir CLAUDE.md).
-Ajouts 0.5 (versions compatibles SDK 56, installées avec `npx expo install`) : supabase-js 2.118.0,
-async-storage, url-polyfill, expo-image-manipulator, expo-text-extractor 2.0.0, react-native-webview, expo-haptics.
+Expo SDK 58, React Native 0.88.1, vision-camera 5.2.4 avec react-native-vision-camera-worklets 5.2.4,
+react-native-worklets 0.13.0, nitro-modules 0.37.2, nitro-image 0.15.2,
+fast-tflite 3.0.1. Ne pas les mettre à jour sans tester sur un vrai téléphone (voir CLAUDE.md).
+Autres : supabase-js 2.118.0, async-storage, url-polyfill, expo-image-manipulator, expo-text-extractor 2.0.0,
+react-native-webview 14, expo-haptics (versions données par `npx expo install`).
 
-**Correctif vision-camera** (`patches/`, appliqué par `patch-package` au `npm install`) : sur Android, la liste des
-caméras était lue avant que CameraX ait fini de démarrer (« Aucune caméra arrière » au premier lancement) ;
-le module renvoie maintenant la liste à JS dès qu'elle est prête. À refaire ou retirer si vision-camera change.
+**Analyse de la photo** : `src/photoAnalysis.ts` (voir la décision du 2026-11-05 dans CLAUDE.md). Plus de frame processor ni de Resizer.
 
-À savoir : `expo-doctor` signale une fuite de mémoire connue de Hermes dans RN 0.85, corrigée dans
-Expo SDK 57. À surveiller pendant les tests (l'app qui ralentit ou se ferme après un long moment de chasse).
+**Correctifs** (`patches/`, appliqués par `patch-package` au `postinstall`) : ML Kit embarqué et erreurs détaillées dans
+expo-text-extractor ; distance de mise au point Android dans vision-camera. R8 est **désactivé** dans `app.json` : il faisait
+planter ML Kit.
 
 ## Installation (une seule fois, sur le PC)
 
@@ -80,11 +80,37 @@ npx eas-cli build --profile development --platform android   # ou ios (iPhone en
 npx expo start --dev-client
 ```
 
+### Lire le journal du téléphone (adb sans fil)
+
+`adb` est dans `%LOCALAPPDATA%\Android\platform-tools\`. Sur le téléphone : Options de développement →
+Débogage sans fil → « Associer l'appareil avec un code d'association », puis :
+
+```bash
+adb pair <ip>:<port d'association> <code>
+adb connect <ip>:<port affiché sous « Adresse IP et port »>
+adb logcat -v time | grep -E "ReactNativeJS|HybridCameraSession|AndroidRuntime"
+```
+
+Les messages `[SkyHunt]` (montage de l'écran caméra, démarrage de session, erreurs) apparaissent sous `ReactNativeJS`.
+
+### Mises à jour à distance (expo-updates, sans recompiler)
+
+Les APK `preview` écoutent le canal `preview`. Un changement **de code seulement** (TypeScript, `web/*.js`
+partagés, images) s'envoie en 2-3 minutes :
+
+```bash
+npx eas-cli update --channel preview --environment preview --message "description du changement"
+```
+
+L'app télécharge la mise à jour au lancement et l'applique **au lancement suivant** (la fermer et la rouvrir deux fois).
+`runtimeVersion` suit `version` de `app.json` : tout changement **natif** (nouvelle bibliothèque, version d'Expo,
+plugin, `app.json`) exige d'augmenter `version` **et** de recompiler, sinon une mise à jour pourrait viser un APK incompatible.
+
 ## Tester sur le terrain
 
 Depuis une **zone publique** (stationnement, belvédère) ou une zone où tu as l'autorisation.
 
 1. Ouvre le **Diagnostic** : confiance, taille, netteté, luminosité, zoom et précision GPS en direct.
 2. Essaie le **zoom** (boutons ou pincement) sur un avion lointain : la taille doit monter au-dessus de 15 %.
-3. Si le cadre vert ne suit pas l'avion, touche **↻ Orientation** jusqu'à ce qu'il tombe juste et note l'angle.
+3. Si le cadre vert ne suit pas l'avion, fais une capture d'écran avec le diagnostic ouvert (l'orientation est maintenant gérée par vision-camera).
 4. Profil → **Copier les mesures** : envoie le CSV (il contient maintenant la colonne zoom).

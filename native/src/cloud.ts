@@ -11,10 +11,11 @@ import { AppState } from 'react-native';
 import { SUPABASE_KEY, SUPABASE_URL } from '../../web/cloud-config.js';
 import { compressForUpload } from './ocr';
 import { deleteCapture, downloadPhoto, getCapture, listCaptures, putCapture } from './storage';
-import type { Capture } from './types';
+import type { Capture, FriendRow, RankRow } from './types';
 
 const BUCKET = 'captures';
 const DELETES_KEY = 'skyhunt.pendingDeletes';
+const TOKENS_KEY = 'skyhunt.captureTokens';
 const PAGE = 500;
 
 export type Profile = { pseudo: string; country: string };
@@ -70,6 +71,7 @@ export async function initCloud() {
   });
   st.enabled = true;
   try { deletes = JSON.parse((await AsyncStorage.getItem(DELETES_KEY)) || '[]'); } catch { deletes = []; }
+  try { tokens = JSON.parse((await AsyncStorage.getItem(TOKENS_KEY)) || '{}'); } catch { tokens = {}; }
 
   const { data } = await sb.auth.getSession();
   await setUser(data.session ? data.session.user : null);
@@ -139,9 +141,10 @@ async function loadRemoteProfile() {
   st.profileLoaded = true;
 }
 
+/** Création du profil (une seule fois : pseudo et pays ne sont plus modifiables ensuite, sauf par un administrateur). */
 export async function saveRemoteProfile({ pseudo, country }: Profile) {
   const row = { id: st.user!.id, pseudo: pseudo.trim(), country };
-  const { data, error } = await client().from('profiles').upsert(row).select('pseudo, country').single();
+  const { data, error } = await client().from('profiles').insert(row).select('pseudo, country').single();
   if (error) throw new Error(frenchError(error));
   st.profile = data as Profile;
   st.profileLoaded = true;
@@ -205,6 +208,33 @@ async function countPending() {
     + deletes.filter((d) => d.uid === uid).length;
 }
 
+/* =================== Jetons de capture (anti-triche) =================== */
+// Même principe que web/cloud.js : jetons à usage unique distribués par le serveur (20 au plus, 7 jours),
+// un par photo valide ; une photo avec jeton n'est pas antidatée, même envoyée plus tard.
+type Token = { token: string; issuedAt: string };
+const TOKEN_LIFE_MS = 7 * 86400e3 - 3600e3;
+let tokens: Record<string, Token[]> = {};
+const freshTokens = (uid: string) => (tokens[uid] || []).filter((t) => Date.now() - Date.parse(t.issuedAt) < TOKEN_LIFE_MS);
+function saveTokens(uid: string, list: Token[]) {
+  tokens = { ...tokens, [uid]: list };
+  AsyncStorage.setItem(TOKENS_KEY, JSON.stringify(tokens)).catch(() => {});
+}
+async function refillTokens(uid: string) {
+  if (freshTokens(uid).length >= 10) return;
+  const { data, error } = await client().rpc('issue_capture_tokens', { p_count: 20 - freshTokens(uid).length });
+  if (error) { console.warn('jetons', error.message); return; } // serveur pas à jour : on continue sans
+  saveTokens(uid, [...freshTokens(uid), ...(data as Row[]).map((t) => ({ token: t.token as string, issuedAt: t.issued_at as string }))]);
+}
+/** Prend un jeton pour une photo qu'on vient de prendre (null sans compte ou réserve vide). */
+export function takeCaptureToken(): string | null {
+  if (!st.user) return null;
+  const list = freshTokens(st.user.id);
+  const t = list.shift();
+  saveTokens(st.user.id, list);
+  if (list.length < 10) scheduleSync(3000);
+  return t ? t.token : null;
+}
+
 /* =================== Synchronisation =================== */
 let timer: ReturnType<typeof setTimeout> | undefined;
 export function scheduleSync(delay = 1500) {
@@ -225,9 +255,10 @@ export function sync(): Promise<{ pushed: number; pulled: number }> {
       emit();
       try {
         const uid = st.user!.id;
+        await refillTokens(uid);
         await pushDeletes(uid);
         const pushed = await pushCaptures(uid);
-        const pulled = await pullCaptures(uid);
+        const pulled = (await pullCaptures(uid)) + (await pullScores(uid));
         total = { pushed: total.pushed + pushed, pulled: total.pulled + pulled };
         st.lastSync = new Date();
       } catch (e) {
@@ -305,8 +336,9 @@ async function pullCaptures(uid: string) {
     } else if (mine.syncState === 'synced') {
       // Identification corrigée sur un autre appareil ?
       const upd: Partial<Capture> = {};
-      for (const [k, col] of ID_FIELDS) {
-        if ((mine[k] ?? null) !== (row[col] ?? null)) (upd as Row)[k] = row[col];
+      for (const [k, col, conv = (v: any) => v] of ID_FIELDS) {
+        const v = conv(row[col] ?? null);
+        if ((mine[k] ?? null) !== v) (upd as Row)[k] = v;
       }
       if (!mine.photoUri && row.photo_path) upd.photoUri = await fetchPhoto(row.client_id, row.photo_path);
       if (Object.keys(upd).length) { await putCapture({ ...mine, ...upd, photoPath: row.photo_path }); n++; }
@@ -320,6 +352,60 @@ async function pullCaptures(uid: string) {
   return n;
 }
 
+/**
+ * Points de lieu calculés par le serveur (rareté du lieu d'après les captures de tous les joueurs).
+ * Gardés dans la capture locale (`placePoints`) : recomputeAll s'en sert, sinon 1 point.
+ */
+async function pullScores(uid: string) {
+  const { data, error } = await client().rpc('my_scores');
+  // Facultatif : sans cette fonction (serveur pas encore à jour), on garde 1 point de lieu sans bloquer la synchro.
+  if (error) { console.warn('my_scores', error.message); return 0; }
+  const byId = new Map((data as Row[]).map((r) => [r.client_id as string, r]));
+  let n = 0;
+  for (const c of await listCaptures()) {
+    const r = byId.get(c.id);
+    if (c.ownerId !== uid || !r) continue;
+    const duplicate = !!r.duplicate; // photo en double, constaté par le serveur
+    if (c.placePoints === r.place_points && !!c.duplicate === duplicate) continue;
+    const now = await getCapture(c.id); // relue : ne pas écraser une modification faite entre-temps
+    if (now) { await putCapture({ ...now, placePoints: r.place_points, duplicate }); n++; }
+  }
+  return n;
+}
+
+/** Classement : country null = mondial, sinon code ISO ; month = une date du mois (AAAA-MM-JJ) ou null. */
+export async function fetchLeaderboard({ country = null, month = null, limit = 100 }: { country?: string | null; month?: string | null; limit?: number } = {}): Promise<RankRow[]> {
+  if (!st.enabled || !st.user) throw new Error('Connecte-toi pour voir les classements.');
+  const { data, error } = await client().rpc('leaderboard', { p_country: country, p_month: month, p_limit: limit });
+  if (error) throw new Error(frenchError(error));
+  return (data as Row[]).map(rankRow);
+}
+const rankRow = (r: Row): RankRow => ({
+  rank: Number(r.rank), pseudo: r.pseudo, country: r.country, points: Number(r.points), captures: Number(r.captures), isMe: !!r.is_me,
+});
+
+/* =================== Amis (supabase/migrations/20261105120000_amis.sql) =================== */
+async function call<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
+  if (!st.enabled || !st.user) throw new Error('Connecte-toi d\'abord.');
+  const { data, error } = await client().rpc(fn, args);
+  if (error) throw new Error(frenchError(error));
+  return data as T;
+}
+/** Classement entre amis (moi + amis acceptés) ; month = 'AAAA-MM-01' ou null. */
+export const fetchFriendsLeaderboard = async ({ month = null }: { month?: string | null } = {}) =>
+  (await call<Row[]>('friends_leaderboard', { p_month: month })).map(rankRow);
+export const myFriendCode = () => call<string>('my_friend_code');
+/** Renvoie 'envoyée', 'acceptée' ou 'inconnu'. */
+export const requestFriend = (code: string) => call<'envoyée' | 'acceptée' | 'inconnu'>('request_friend', { p_code: code });
+export const respondFriend = (userId: string, accept: boolean) => call<void>('respond_friend', { p_user: userId, p_accept: accept });
+export const removeFriend = (userId: string) => call<void>('remove_friend', { p_user: userId });
+export const fetchFriends = async (): Promise<FriendRow[]> =>
+  (await call<Row[]>('my_friends')).map((f) => ({
+    userId: f.user_id, state: f.state, pseudo: f.pseudo, country: f.country, code: f.code, retryAt: f.retry_at ?? null,
+  }));
+/** Code affiché en deux blocs : ABCD-EFGH. */
+export const formatFriendCode = (c?: string | null) => (c && c.length === 8 ? `${c.slice(0, 4)}-${c.slice(4)}` : c || '');
+
 async function fetchPhoto(id: string, path: string): Promise<string | null> {
   const { data, error } = await client().storage.from(BUCKET).createSignedUrl(path, 300);
   if (error || !data) { console.warn('photo', path, error); return null; }
@@ -331,11 +417,14 @@ async function fetchPhoto(id: string, path: string): Promise<string | null> {
   }
 }
 
-const ID_FIELDS: [keyof Capture, string][] = [
+const isoOrNull = (v: any) => (v ? new Date(v).toISOString() : null);
+const ID_FIELDS: [keyof Capture, string, ((v: any) => any)?][] = [
   ['typeId', 'type_id'],
+  ['seriesId', 'series_id'],
   ['registration', 'registration'],
   ['registrationSource', 'registration_source'],
   ['registryModel', 'registry_model'],
+  ['militaryAckAt', 'military_ack_at', isoOrNull],
 ];
 
 function toRow(c: Capture, uid: string, photoPath: string | null) {
@@ -362,9 +451,12 @@ function toRow(c: Capture, uid: string, photoPath: string | null) {
     photo_path: photoPath,
     user_agent: c.userAgent,
     type_id: c.typeId ?? null,
+    series_id: c.seriesId ?? null,
     registration: c.registration ?? null,
     registration_source: c.registrationSource ?? null,
     registry_model: c.registryModel ?? null,
+    capture_token: c.captureToken ?? null,
+    military_ack_at: c.militaryAckAt ?? null,
   };
 }
 
@@ -390,9 +482,12 @@ function fromRow(r: Row, uid: string): Capture {
     valid: r.valid,
     reasons: r.reasons || [],
     typeId: r.type_id,
+    seriesId: r.series_id ?? null,
     registration: r.registration,
     registrationSource: r.registration_source,
     registryModel: r.registry_model,
+    militaryAckAt: isoOrNull(r.military_ack_at),
+    captureToken: r.capture_token ?? null,
     userAgent: r.user_agent || '',
     ownerId: uid,
     syncState: 'synced',
@@ -409,7 +504,7 @@ function isAlreadyExists(e: any) {
 
 function frenchError(e: any): string {
   const m = (e && (e.message || e.error_description || e.error)) || String(e);
-  if (e && e.code === '23505') return 'Ce pseudo est déjà pris.';
+  if (e && e.code === '23505') return /pkey/.test(m) ? 'Ton profil existe déjà.' : 'Ce pseudo est déjà pris.';
   if (/expired or is invalid|invalid.*otp|otp.*invalid/i.test(m)) return 'Code invalide ou expiré.';
   if (/rate limit|only request this after|too many/i.test(m)) return 'Trop de demandes : attends un peu avant de réessayer.';
   if (/Failed to fetch|NetworkError|Load failed|Network request failed|network/i.test(m)) return 'Pas de connexion au serveur.';
